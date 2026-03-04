@@ -1,79 +1,24 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
 import path from "path";
+import { fileURLToPath } from "url";
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
 
-const db = new Database("resto.db");
+dotenv.config();
 
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS inventory (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    unit TEXT NOT NULL,
-    quantity REAL DEFAULT 0,
-    cost_per_unit REAL DEFAULT 0
-  );
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-  CREATE TABLE IF NOT EXISTS journal (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    description TEXT NOT NULL,
-    account TEXT,
-    debit REAL DEFAULT 0,
-    credit REAL DEFAULT 0,
-    category TEXT NOT NULL
-  );
+// Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-  CREATE TABLE IF NOT EXISTS assets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    purchase_date TEXT NOT NULL,
-    purchase_price REAL NOT NULL,
-    lifespan_years INTEGER NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS recipes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    inventory_id INTEGER NOT NULL,
-    quantity_per_unit REAL NOT NULL,
-    FOREIGN KEY (inventory_id) REFERENCES inventory(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS units (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
-  );
-`);
-
-// Seed initial data if empty
-const invCount = db.prepare("SELECT count(*) as count FROM inventory").get() as { count: number };
-if (invCount.count === 0) {
-  // Seed default units
-  const defaultUnits = ['GR', 'ML', 'PCS', 'KG'];
-  for (const unit of defaultUnits) {
-    db.prepare("INSERT OR IGNORE INTO units (name) VALUES (?)").run(unit);
-  }
-
-  db.prepare("INSERT INTO inventory (name, unit, quantity) VALUES (?, ?, ?)").run("Biji Kopi Arabica", "KG", 15);
-  db.prepare("INSERT INTO inventory (name, unit, quantity) VALUES (?, ?, ?)").run("Susu UHT", "ML", 5000);
-  db.prepare("INSERT INTO inventory (name, unit, quantity) VALUES (?, ?, ?)").run("Gula Aren", "GR", 2000);
-  
-  db.prepare("INSERT INTO journal (date, description, debit, credit, category) VALUES (?, ?, ?, ?, ?)")
-    .run(new Date().toISOString().split('T')[0], "Penjualan Harian", 0, 1500000, "Income");
-  db.prepare("INSERT INTO journal (date, description, debit, credit, category) VALUES (?, ?, ?, ?, ?)")
-    .run(new Date().toISOString().split('T')[0], "Beli Bahan Baku", 450000, 0, "Expense");
-
-  db.prepare("INSERT INTO assets (name, type, purchase_date, purchase_price, lifespan_years) VALUES (?, ?, ?, ?, ?)")
-    .run("Mesin Espresso Simonelli", "Machinery", "2024-01-15", 45000000, 8);
-
-  // Seed a default recipe: 1 sale = 20g coffee beans
-  const coffeeId = db.prepare("SELECT id FROM inventory WHERE name = ?").get("Biji Kopi Arabica") as { id: number };
-  if (coffeeId) {
-    db.prepare("INSERT INTO recipes (inventory_id, quantity_per_unit) VALUES (?, ?)").run(coffeeId.id, 20);
-  }
-}
+// Egress Tracking State (Simple in-memory for this demo, but could be DB-backed)
+let monthlyEgressBytes = 0;
+const EGRESS_LIMIT_BYTES = 5 * 1024 * 1024 * 1024; // 5GB
+const EGRESS_WARNING_THRESHOLD = 0.8; // 80%
 
 async function startServer() {
   const app = express();
@@ -81,158 +26,362 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Egress Tracking Middleware
+  app.use((req, res, next) => {
+    const oldSend = res.send;
+    res.send = function (data) {
+      if (data) {
+        const size = Buffer.byteLength(typeof data === 'string' ? data : JSON.stringify(data));
+        monthlyEgressBytes += size;
+      }
+      return oldSend.apply(res, arguments as any);
+    };
+    next();
+  });
+
   // API Routes
-  app.get("/api/inventory", (req, res) => {
-    const items = db.prepare("SELECT * FROM inventory ORDER BY name ASC").all();
-    res.json(items);
-  });
-
-  app.post("/api/inventory", (req, res) => {
-    const { name, unit, quantity } = req.body;
-    const result = db.prepare("INSERT INTO inventory (name, unit, quantity) VALUES (?, ?, ?)").run(name, unit, quantity);
-    res.json({ id: result.lastInsertRowid });
-  });
-
-  app.put("/api/inventory/:id", (req, res) => {
-    const { quantity } = req.body;
-    db.prepare("UPDATE inventory SET quantity = ? WHERE id = ?").run(quantity, req.params.id);
-    res.json({ success: true });
-  });
-
-  app.delete("/api/inventory/:id", (req, res) => {
-    db.prepare("DELETE FROM inventory WHERE id = ?").run(req.params.id);
-    res.json({ success: true });
-  });
-
-  app.get("/api/journal", (req, res) => {
-    const entries = db.prepare("SELECT * FROM journal ORDER BY date DESC, id DESC").all();
-    res.json(entries);
-  });
-
-  app.post("/api/journal", (req, res) => {
-    const { date, description, debit, credit, category } = req.body;
-    const result = db.prepare("INSERT INTO journal (date, description, debit, credit, category) VALUES (?, ?, ?, ?, ?)")
-      .run(date, description, debit, credit, category);
-    res.json({ id: result.lastInsertRowid });
-  });
-
-  app.delete("/api/journal/:id", (req, res) => {
-    db.prepare("DELETE FROM journal WHERE id = ?").run(req.params.id);
-    res.json({ success: true });
-  });
-
-  app.get("/api/assets", (req, res) => {
-    const assets = db.prepare("SELECT * FROM assets").all();
-    res.json(assets);
-  });
-
-  app.post("/api/assets", (req, res) => {
-    const { name, type, purchase_date, purchase_price, lifespan_years } = req.body;
-    const result = db.prepare("INSERT INTO assets (name, type, purchase_date, purchase_price, lifespan_years) VALUES (?, ?, ?, ?, ?)")
-      .run(name, type, purchase_date, purchase_price, lifespan_years);
-    res.json({ id: result.lastInsertRowid });
-  });
-
-  app.delete("/api/assets/:id", (req, res) => {
-    db.prepare("DELETE FROM assets WHERE id = ?").run(req.params.id);
-    res.json({ success: true });
-  });
-
-  app.get("/api/reports/profit-loss", (req, res) => {
-    const income = db.prepare("SELECT SUM(credit) as total FROM journal WHERE category = 'Income'").get() as { total: number };
-    const expenses = db.prepare("SELECT SUM(debit) as total FROM journal WHERE category = 'Expense'").get() as { total: number };
+  app.get("/api/egress-status", (req, res) => {
     res.json({
-      income: income.total || 0,
-      expenses: expenses.total || 0
+      usage: monthlyEgressBytes,
+      limit: EGRESS_LIMIT_BYTES,
+      percentage: (monthlyEgressBytes / EGRESS_LIMIT_BYTES) * 100,
+      warning: monthlyEgressBytes > EGRESS_LIMIT_BYTES * EGRESS_WARNING_THRESHOLD
     });
   });
 
-  // Recipe Endpoints
-  app.get("/api/recipes", (req, res) => {
-    const recipes = db.prepare(`
-      SELECT r.*, i.name as inventory_name, i.unit as inventory_unit 
-      FROM recipes r 
-      JOIN inventory i ON r.inventory_id = i.id
-    `).all();
-    res.json(recipes);
+  app.get("/api/inventory", async (req, res) => {
+    const { data, error } = await supabase
+      .from("inventory")
+      .select("*")
+      .order("name", { ascending: true });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
   });
 
-  app.post("/api/recipes", (req, res) => {
-    const { inventory_id, quantity_per_unit } = req.body;
-    const result = db.prepare("INSERT INTO recipes (inventory_id, quantity_per_unit) VALUES (?, ?)").run(inventory_id, quantity_per_unit);
-    res.json({ id: result.lastInsertRowid });
+  app.post("/api/inventory", async (req, res) => {
+    const { name, unit, quantity, cost_per_unit } = req.body;
+    const { data, error } = await supabase
+      .from("inventory")
+      .insert([{ name, unit, quantity, cost_per_unit }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: data[0].id });
   });
 
-  app.delete("/api/recipes/:id", (req, res) => {
-    db.prepare("DELETE FROM recipes WHERE id = ?").run(req.params.id);
+  app.put("/api/inventory/:id", async (req, res) => {
+    const { quantity } = req.body;
+    const { error } = await supabase
+      .from("inventory")
+      .update({ quantity })
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
     res.json({ success: true });
   });
 
-  // Unit Endpoints
-  app.get("/api/units", (req, res) => {
-    const units = db.prepare("SELECT * FROM units ORDER BY name ASC").all();
-    res.json(units);
+  app.delete("/api/inventory/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("inventory")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
   });
 
-  app.post("/api/units", (req, res) => {
+  app.get("/api/journal", async (req, res) => {
+    const { data, error } = await supabase
+      .from("journal")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("id", { ascending: false });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/journal", async (req, res) => {
+    const { date, description, debit, credit, category } = req.body;
+    const { data, error } = await supabase
+      .from("journal")
+      .insert([{ date, description, debit, credit, category }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: data[0].id });
+  });
+
+  app.delete("/api/journal/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("journal")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.get("/api/assets", async (req, res) => {
+    const { data, error } = await supabase
+      .from("assets")
+      .select("*");
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/assets", async (req, res) => {
+    const { name, type, purchase_date, purchase_price, lifespan_years } = req.body;
+    const { data, error } = await supabase
+      .from("assets")
+      .insert([{ name, type, purchase_date, purchase_price, lifespan_years }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: data[0].id });
+  });
+
+  app.delete("/api/assets/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("assets")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.get("/api/reports/profit-loss", async (req, res) => {
+    const { data: incomeData, error: incomeError } = await supabase
+      .from("journal")
+      .select("credit")
+      .eq("category", "Income");
+    
+    const { data: expenseData, error: expenseError } = await supabase
+      .from("journal")
+      .select("debit")
+      .eq("category", "Expense");
+
+    if (incomeError || expenseError) return res.status(500).json({ error: "Failed to fetch report data" });
+
+    const income = incomeData.reduce((sum, item) => sum + (item.credit || 0), 0);
+    const expenses = expenseData.reduce((sum, item) => sum + (item.debit || 0), 0);
+
+    res.json({ income, expenses });
+  });
+
+  app.get("/api/recipes", async (req, res) => {
+    const { data, error } = await supabase
+      .from("recipes")
+      .select(`
+        *,
+        inventory:inventory_id (name, unit)
+      `);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    
+    // Flatten the join result to match previous API structure
+    const flattened = data.map(r => ({
+      ...r,
+      inventory_name: r.inventory?.name,
+      inventory_unit: r.inventory?.unit
+    }));
+    
+    res.json(flattened);
+  });
+
+  app.get("/api/menus", async (req, res) => {
+    const { data, error } = await supabase
+      .from("menus")
+      .select("*")
+      .order("name", { ascending: true });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/menus", async (req, res) => {
     const { name } = req.body;
+    const { data, error } = await supabase
+      .from("menus")
+      .insert([{ name }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  });
+
+  app.delete("/api/menus/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("menus")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.get("/api/menus/:menuId/ingredients", async (req, res) => {
+    const { data, error } = await supabase
+      .from("menu_ingredients")
+      .select(`
+        *,
+        inventory:inventory_id (name, unit)
+      `)
+      .eq("menu_id", req.params.menuId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    
+    const flattened = data.map(r => ({
+      ...r,
+      inventory_name: r.inventory?.name,
+      inventory_unit: r.inventory?.unit
+    }));
+    
+    res.json(flattened);
+  });
+
+  app.post("/api/menu-ingredients", async (req, res) => {
+    const { menu_id, inventory_id, quantity } = req.body;
+    const { data, error } = await supabase
+      .from("menu_ingredients")
+      .insert([{ menu_id, inventory_id, quantity }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  });
+
+  app.delete("/api/menu-ingredients/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("menu_ingredients")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.post("/api/recipes", async (req, res) => {
+    const { inventory_id, quantity_per_unit } = req.body;
+    const { data, error } = await supabase
+      .from("recipes")
+      .insert([{ inventory_id, quantity_per_unit }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: data[0].id });
+  });
+
+  app.delete("/api/recipes/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("recipes")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.get("/api/units", async (req, res) => {
+    const { data, error } = await supabase
+      .from("units")
+      .select("*")
+      .order("name", { ascending: true });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/units", async (req, res) => {
+    const { name } = req.body;
+    const { data, error } = await supabase
+      .from("units")
+      .insert([{ name: name.toUpperCase() }])
+      .select();
+    
+    if (error) {
+      if (error.code === "23505") return res.status(400).json({ error: "Unit already exists" });
+      return res.status(500).json({ error: error.message });
+    }
+    res.json({ id: data[0].id });
+  });
+
+  app.delete("/api/units/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("units")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
+  app.post("/api/transactions/purchase", async (req, res) => {
+    const { inventory_id, quantity, total_cost, date, description } = req.body;
+    
+    // In Supabase, we can use RPC for transactions or just sequential calls if atomicity isn't critical for this demo
+    // For better reliability, we use sequential calls here.
     try {
-      const result = db.prepare("INSERT INTO units (name) VALUES (?)").run(name.toUpperCase());
-      res.json({ id: result.lastInsertRowid });
-    } catch (error) {
-      res.status(400).json({ error: "Unit already exists" });
+      // 1. Get current quantity
+      const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", inventory_id).single();
+      const newQty = (inv?.quantity || 0) + quantity;
+
+      // 2. Update Inventory
+      await supabase.from("inventory").update({ quantity: newQty }).eq("id", inventory_id);
+      
+      // 3. Add Journal Entry
+      await supabase.from("journal").insert([{ date, description, debit: total_cost, credit: 0, category: "Expense" }]);
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Transaction failed" });
     }
   });
 
-  app.delete("/api/units/:id", (req, res) => {
-    db.prepare("DELETE FROM units WHERE id = ?").run(req.params.id);
-    res.json({ success: true });
-  });
-
-  // Purchase Transaction
-  app.post("/api/transactions/purchase", (req, res) => {
-    const { inventory_id, quantity, total_cost, date, description } = req.body;
+  app.post("/api/transactions/sale", async (req, res) => {
+    const { amount, date, description, items_sold, menu_id } = req.body;
     
-    const transaction = db.transaction(() => {
-      // 1. Update Inventory
-      db.prepare("UPDATE inventory SET quantity = quantity + ? WHERE id = ?").run(quantity, inventory_id);
-      
-      // 2. Add Journal Entry
-      db.prepare("INSERT INTO journal (date, description, debit, credit, category) VALUES (?, ?, ?, ?, ?)")
-        .run(date, description, total_cost, 0, "Expense");
-    });
-
-    transaction();
-    res.json({ success: true });
-  });
-
-  // Sale Transaction
-  app.post("/api/transactions/sale", (req, res) => {
-    const { amount, date, description, items_sold } = req.body;
-    
-    const transaction = db.transaction(() => {
+    try {
       // 1. Add Journal Entry
-      db.prepare("INSERT INTO journal (date, description, debit, credit, category) VALUES (?, ?, ?, ?, ?)")
-        .run(date, description, 0, amount, "Income");
+      await supabase.from("journal").insert([{ date, description, debit: 0, credit: amount, category: "Income" }]);
 
-      // 2. Deduct Inventory based on recipes
-      // For simplicity, we assume 'items_sold' is the number of units sold (e.g., cups of coffee)
-      // and we apply ALL active recipes to each unit sold.
-      const recipes = db.prepare("SELECT * FROM recipes").all() as { inventory_id: number, quantity_per_unit: number }[];
-      
-      for (const recipe of recipes) {
-        const totalDeduction = recipe.quantity_per_unit * items_sold;
+      // 2. Deduct Inventory
+      if (menu_id) {
+        // Deduct based on specific menu ingredients
+        const { data: ingredients } = await supabase
+          .from("menu_ingredients")
+          .select("*")
+          .eq("menu_id", menu_id);
         
-        // Check inventory unit. If it's KG and recipe is in GR, we need to convert.
-        // For now, let's assume the recipe quantity matches the inventory unit.
-        // In a real app, we'd handle unit conversions.
+        if (ingredients) {
+          for (const ingredient of ingredients) {
+            const totalDeduction = ingredient.quantity * items_sold;
+            const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
+            const newQty = (inv?.quantity || 0) - totalDeduction;
+            await supabase.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
+          }
+        }
+      } else {
+        // Fallback to old global recipes logic if no menu_id provided
+        const { data: recipes } = await supabase.from("recipes").select("*");
         
-        db.prepare("UPDATE inventory SET quantity = quantity - ? WHERE id = ?").run(totalDeduction, recipe.inventory_id);
+        if (recipes) {
+          for (const recipe of recipes) {
+            const totalDeduction = recipe.quantity_per_unit * items_sold;
+            const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", recipe.inventory_id).single();
+            const newQty = (inv?.quantity || 0) - totalDeduction;
+            await supabase.from("inventory").update({ quantity: newQty }).eq("id", recipe.inventory_id);
+          }
+        }
       }
-    });
 
-    transaction();
-    res.json({ success: true });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Transaction failed" });
+    }
   });
 
   // Vite middleware for development

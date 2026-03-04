@@ -42,3 +42,17 @@ export interface Recipe {
   inventory_unit: string;
   quantity_per_unit: number;
 }
+
+export interface Menu {
+  id: number;
+  name: string;
+}
+
+export interface MenuIngredient {
+  id: number;
+  menu_id: number;
+  inventory_id: number;
+  inventory_name: string;
+  inventory_unit: string;
+  quantity: number;
+}

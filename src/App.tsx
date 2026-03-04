@@ -18,10 +18,11 @@ import {
   Trash2,
   ShoppingCart,
   Banknote,
-  Settings
+  Settings,
+  Coffee
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Recipe, Unit } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Recipe, Unit, Menu, MenuIngredient } from './types';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -32,12 +33,14 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu'>('dashboard');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [profitLoss, setProfitLoss] = useState<ProfitLoss>({ income: 0, expenses: 0 });
   const [units, setUnits] = useState<Unit[]>([]);
+  const [menus, setMenus] = useState<Menu[]>([]);
+  const [egressStatus, setEgressStatus] = useState<{ usage: number, limit: number, percentage: number, warning: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,19 +50,31 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, journalRes, assetRes, plRes, unitsRes] = await Promise.all([
+      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes] = await Promise.all([
         fetch('/api/inventory'),
         fetch('/api/journal'),
         fetch('/api/assets'),
         fetch('/api/reports/profit-loss'),
-        fetch('/api/units')
+        fetch('/api/units'),
+        fetch('/api/menus'),
+        fetch('/api/egress-status')
       ]);
       
-      setInventory(await invRes.json());
-      setJournal(await journalRes.json());
-      setAssets(await assetRes.json());
-      setProfitLoss(await plRes.json());
-      setUnits(await unitsRes.json());
+      const invData = await invRes.json();
+      const journalData = await journalRes.json();
+      const assetData = await assetRes.json();
+      const plData = await plRes.json();
+      const unitsData = await unitsRes.json();
+      const menusData = await menusRes.json();
+      const egressData = await egressRes.json();
+
+      setInventory(Array.isArray(invData) ? invData : []);
+      setJournal(Array.isArray(journalData) ? journalData : []);
+      setAssets(Array.isArray(assetData) ? assetData : []);
+      setProfitLoss(plData && !plData.error ? plData : { income: 0, expenses: 0 });
+      setUnits(Array.isArray(unitsData) ? unitsData : []);
+      setMenus(Array.isArray(menusData) ? menusData : []);
+      setEgressStatus(egressData && !egressData.error ? egressData : null);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -99,6 +114,7 @@ export default function App() {
             { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
             { id: 'purchase', icon: ShoppingCart, label: 'Pembelian' },
             { id: 'sale', icon: Banknote, label: 'Penjualan' },
+            { id: 'menu', icon: Coffee, label: 'Menu' },
             { id: 'inventory', icon: Package, label: 'Stock Opname' },
             { id: 'journal', icon: BookOpen, label: 'Jurnal Umum' },
             { id: 'reports', icon: BarChart3, label: 'Laba Rugi' },
@@ -135,12 +151,20 @@ export default function App() {
             <h2 className="text-2xl font-serif italic text-cafe-espresso capitalize leading-none">{activeTab.replace('-', ' ')}</h2>
             <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1.5 font-semibold">Overview & Management</p>
           </div>
-          <button 
-            onClick={fetchData}
-            className="p-3 hover:bg-cafe-espresso/5 rounded-full transition-all text-cafe-espresso"
-          >
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-6">
+            {egressStatus && egressStatus.warning && (
+              <div className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider animate-pulse border border-rose-200">
+                <RefreshCw size={12} className="animate-spin" />
+                Egress Tinggi: {egressStatus.percentage.toFixed(1)}%
+              </div>
+            )}
+            <button 
+              onClick={fetchData}
+              className="p-3 hover:bg-cafe-espresso/5 rounded-full transition-all text-cafe-espresso"
+            >
+              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-10">
@@ -248,7 +272,11 @@ export default function App() {
             )}
 
             {activeTab === 'sale' && (
-              <SaleView onUpdate={fetchData} />
+              <SaleView menus={menus} onUpdate={fetchData} />
+            )}
+
+            {activeTab === 'menu' && (
+              <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} />
             )}
 
             {activeTab === 'settings' && (
@@ -299,11 +327,7 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col">
-          <h3 className="text-3xl font-serif italic text-cafe-espresso">Manajemen Stok</h3>
-          <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Inventory & Supplies</p>
-        </div>
+      <div className="flex justify-end">
         <button 
           onClick={() => setShowAdd(true)}
           className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
@@ -438,11 +462,7 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col">
-          <h3 className="text-3xl font-serif italic text-cafe-espresso">Jurnal Umum</h3>
-          <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Financial Records</p>
-        </div>
+      <div className="flex justify-end">
         <button 
           onClick={() => setShowAdd(true)}
           className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
@@ -559,11 +579,7 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
 function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal: JournalEntry[] }) {
   return (
     <div className="space-y-10">
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col">
-          <h3 className="text-3xl font-serif italic text-cafe-espresso">Laporan Laba Rugi</h3>
-          <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Profit & Loss Statement</p>
-        </div>
+      <div className="flex justify-end">
         <div className="text-[10px] uppercase tracking-[0.2em] opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">Periode: {new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' })}</div>
       </div>
 
@@ -657,11 +673,7 @@ function AssetsView({ assets, onUpdate, calculateDepreciation }: {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col">
-          <h3 className="text-3xl font-serif italic text-cafe-espresso">Manajemen Aset</h3>
-          <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Fixed Assets & Depreciation</p>
-        </div>
+      <div className="flex justify-end">
         <button 
           onClick={() => setShowAdd(true)}
           className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
@@ -797,11 +809,6 @@ function PurchaseView({ inventory, onUpdate }: { inventory: InventoryItem[], onU
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
-      <div className="flex flex-col text-center mb-10">
-        <h3 className="text-3xl font-serif italic text-cafe-espresso">Pencatatan Pembelian</h3>
-        <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Stock In & Expense</p>
-      </div>
-
       <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-10 rounded-3xl shadow-xl space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
@@ -868,12 +875,13 @@ function PurchaseView({ inventory, onUpdate }: { inventory: InventoryItem[], onU
   );
 }
 
-function SaleView({ onUpdate }: { onUpdate: () => void }) {
+function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) {
   const [formData, setFormData] = useState({
     amount: 0,
     items_sold: 1,
     date: new Date().toISOString().split('T')[0],
-    description: 'Penjualan Harian'
+    description: 'Penjualan Harian',
+    menu_id: ''
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -889,11 +897,6 @@ function SaleView({ onUpdate }: { onUpdate: () => void }) {
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
-      <div className="flex flex-col text-center mb-10">
-        <h3 className="text-3xl font-serif italic text-cafe-espresso">Pencatatan Penjualan</h3>
-        <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Income & Revenue</p>
-      </div>
-
       <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-10 rounded-3xl shadow-xl space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
@@ -905,6 +908,27 @@ function SaleView({ onUpdate }: { onUpdate: () => void }) {
               value={formData.date}
               onChange={e => setFormData({...formData, date: e.target.value})}
             />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Pilih Menu (Opsional)</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={formData.menu_id}
+              onChange={e => {
+                const menuId = e.target.value;
+                const menuName = Array.isArray(menus) ? menus.find(m => m.id.toString() === menuId)?.name : null;
+                setFormData({
+                  ...formData, 
+                  menu_id: menuId,
+                  description: menuName ? `Penjualan ${menuName}` : 'Penjualan Harian'
+                });
+              }}
+            >
+              <option value="">-- Tanpa Menu (Gunakan Takaran Global) --</option>
+              {Array.isArray(menus) && menus.map(menu => (
+                <option key={menu.id} value={menu.id}>{menu.name}</option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Total Penjualan (IDR)</label>
@@ -941,6 +965,219 @@ function SaleView({ onUpdate }: { onUpdate: () => void }) {
           Catat Penjualan
         </button>
       </form>
+    </div>
+  );
+}
+
+function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], menus: Menu[], onUpdate: () => void }) {
+  const [selectedMenu, setSelectedMenu] = useState<Menu | null>(null);
+  const [ingredients, setIngredients] = useState<MenuIngredient[]>([]);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [newMenuName, setNewMenuName] = useState('');
+  const [newIngredient, setNewIngredient] = useState({ inventory_id: '', quantity: 0 });
+
+  const fetchIngredients = async (menuId: number) => {
+    const res = await fetch(`/api/menus/${menuId}/ingredients`);
+    const data = await res.json();
+    setIngredients(data);
+  };
+
+  useEffect(() => {
+    if (selectedMenu) {
+      fetchIngredients(selectedMenu.id);
+    } else {
+      setIngredients([]);
+    }
+  }, [selectedMenu]);
+
+  const handleAddMenu = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/menus', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newMenuName })
+    });
+    if (res.ok) {
+      setNewMenuName('');
+      setShowAddMenu(false);
+      onUpdate();
+    }
+  };
+
+  const handleDeleteMenu = async (id: number) => {
+    if (!confirm('Hapus menu ini beserta semua takarannya?')) return;
+    await fetch(`/api/menus/${id}`, { method: 'DELETE' });
+    if (selectedMenu?.id === id) setSelectedMenu(null);
+    onUpdate();
+  };
+
+  const handleAddIngredient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMenu) return;
+    await fetch('/api/menu-ingredients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...newIngredient, menu_id: selectedMenu.id })
+    });
+    setNewIngredient({ inventory_id: '', quantity: 0 });
+    fetchIngredients(selectedMenu.id);
+  };
+
+  const handleDeleteIngredient = async (id: number) => {
+    await fetch(`/api/menu-ingredients/${id}`, { method: 'DELETE' });
+    if (selectedMenu) fetchIngredients(selectedMenu.id);
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Daftar Menu & Takaran</h3>
+        <button 
+          onClick={() => setShowAddMenu(true)}
+          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+        >
+          <Plus size={18} /> Menu Baru
+        </button>
+      </div>
+
+      {showAddMenu && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-4 items-end"
+          onSubmit={handleAddMenu}
+        >
+          <div className="flex-1 space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Menu</label>
+            <input 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+              placeholder="Misal: Kopi Susu Gula Aren"
+              value={newMenuName}
+              onChange={e => setNewMenuName(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold">Simpan</button>
+          <button type="button" onClick={() => setShowAddMenu(false)} className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold">Batal</button>
+        </motion.form>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Menu List */}
+        <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm h-fit">
+          <div className="p-4 bg-cafe-cream/10 border-b border-cafe-ink/5">
+            <h4 className="text-[11px] uppercase tracking-widest opacity-50 font-bold">Pilih Menu</h4>
+          </div>
+          <div className="divide-y divide-cafe-ink/5">
+            {Array.isArray(menus) && menus.map(menu => (
+              <div 
+                key={menu.id} 
+                className={`p-4 flex justify-between items-center cursor-pointer transition-colors ${selectedMenu?.id === menu.id ? 'bg-cafe-espresso/5 border-l-4 border-cafe-espresso' : 'hover:bg-cafe-cream/20'}`}
+                onClick={() => setSelectedMenu(menu)}
+              >
+                <span className="text-sm font-medium">{menu.name}</span>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleDeleteMenu(menu.id); }}
+                  className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            {(!Array.isArray(menus) || menus.length === 0) && (
+              <p className="p-8 text-center text-xs opacity-40 italic">Belum ada menu.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Ingredients / Takaran */}
+        <div className="lg:col-span-2 space-y-6">
+          {selectedMenu ? (
+            <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-8">
+              <div className="flex justify-between items-center border-b border-cafe-ink/5 pb-4">
+                <div>
+                  <h4 className="text-2xl font-serif italic text-cafe-espresso">{selectedMenu.name}</h4>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mt-1">Pengaturan Takaran Bahan Baku</p>
+                </div>
+                <div className="p-3 bg-cafe-cream rounded-2xl">
+                  <Calculator size={24} className="text-cafe-espresso" />
+                </div>
+              </div>
+
+              <form onSubmit={handleAddIngredient} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Bahan Baku</label>
+                  <select 
+                    required
+                    className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                    value={newIngredient.inventory_id}
+                    onChange={e => setNewIngredient({...newIngredient, inventory_id: e.target.value})}
+                  >
+                    <option value="">-- Pilih Bahan --</option>
+                    {inventory.map(item => (
+                      <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
+                    Takaran {newIngredient.inventory_id && `[${inventory.find(i => i.id === parseInt(newIngredient.inventory_id))?.unit}]`}
+                  </label>
+                  <input 
+                    type="number"
+                    required
+                    step="0.01"
+                    className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                    value={newIngredient.quantity || ''}
+                    onChange={e => setNewIngredient({...newIngredient, quantity: parseFloat(e.target.value)})}
+                  />
+                </div>
+                <button type="submit" className="bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold hover:shadow-md transition-all">
+                  Tambah Takaran
+                </button>
+              </form>
+
+              <div className="space-y-4">
+                <h5 className="text-[10px] uppercase tracking-widest opacity-50 font-bold border-b border-cafe-ink/5 pb-2">Daftar Bahan & Takaran</h5>
+                <div className="divide-y divide-cafe-ink/5">
+                  {Array.isArray(ingredients) && ingredients.map(ing => (
+                    <div key={ing.id} className="py-4 flex justify-between items-center group">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-cafe-cream/30 flex items-center justify-center text-cafe-espresso font-bold text-xs">
+                          {ing.inventory_name?.charAt(0) || '?'}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-cafe-ink">{ing.inventory_name || 'Item Terhapus'}</p>
+                          <p className="text-[10px] text-cafe-latte font-bold uppercase tracking-tighter">
+                            {ing.quantity} {ing.inventory_unit} per porsi
+                          </p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleDeleteIngredient(ing.id)}
+                        className="p-2 text-rose-400 opacity-0 group-hover:opacity-100 hover:text-rose-600 transition-all"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {(!Array.isArray(ingredients) || ingredients.length === 0) && (
+                    <p className="py-10 text-center text-sm opacity-30 italic">Belum ada takaran untuk menu ini.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full min-h-[400px] bg-white border border-cafe-ink/5 border-dashed rounded-3xl flex flex-col items-center justify-center text-center p-10">
+              <div className="w-20 h-20 bg-cafe-cream/30 rounded-full flex items-center justify-center mb-6">
+                <Coffee size={40} className="text-cafe-espresso/40" />
+              </div>
+              <h4 className="text-lg font-serif italic text-cafe-espresso opacity-60">Pilih Menu untuk Melihat Takaran</h4>
+              <p className="text-xs text-cafe-ink/40 max-w-xs mt-2">Pilih salah satu menu di sebelah kiri untuk mengelola bahan baku dan takaran yang digunakan.</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1001,11 +1238,6 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col">
-        <h3 className="text-3xl font-serif italic text-cafe-espresso">Settings</h3>
-        <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1 font-semibold">Configuration & Measurements</p>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Recipe Settings */}
         <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
