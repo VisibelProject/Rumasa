@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cafe-paper: #FDFCFB;
+  --color-cafe-ink: #2D2926;
+  --color-cafe-espresso: #4A3728;
+  --color-cafe-latte: #967E67;
+  --color-cafe-cream: #F5E6D3;
+  
+  --font-serif: "Georgia", serif;
+}
