@@ -20,10 +20,10 @@ let monthlyEgressBytes = 0;
 const EGRESS_LIMIT_BYTES = 5 * 1024 * 1024 * 1024; // 5GB
 const EGRESS_WARNING_THRESHOLD = 0.8; // 80%
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
+async function startServer() {
   app.use(express.json());
 
   // Egress Tracking Middleware
@@ -447,16 +447,24 @@ async function startServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+  } else if (!process.env.VERCEL) {
+    // In production (but NOT on Vercel), we serve static files from dist
+    // On Vercel, we let Vercel's static file server handle this via vercel.json
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Only listen if not running as a serverless function (Vercel)
+  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+  return app;
 }
 
-startServer();
+// Export the promise of the app for Vercel
+export default startServer();
