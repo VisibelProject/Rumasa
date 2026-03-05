@@ -172,26 +172,6 @@ async function startServer() {
     res.json({ income, expenses });
   });
 
-  app.get("/api/recipes", async (req, res) => {
-    const { data, error } = await supabase
-      .from("recipes")
-      .select(`
-        *,
-        inventory:inventory_id (name, unit)
-      `);
-    
-    if (error) return res.status(500).json({ error: error.message });
-    
-    // Flatten the join result to match previous API structure
-    const flattened = data.map(r => ({
-      ...r,
-      inventory_name: r.inventory?.name,
-      inventory_unit: r.inventory?.unit
-    }));
-    
-    res.json(flattened);
-  });
-
   app.get("/api/menus", async (req, res) => {
     const { data, error } = await supabase
       .from("menus")
@@ -203,10 +183,22 @@ async function startServer() {
   });
 
   app.post("/api/menus", async (req, res) => {
-    const { name } = req.body;
+    const { name, price } = req.body;
     const { data, error } = await supabase
       .from("menus")
-      .insert([{ name }])
+      .insert([{ name, price: price || 0 }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  });
+
+  app.put("/api/menus/:id", async (req, res) => {
+    const { name, price } = req.body;
+    const { data, error } = await supabase
+      .from("menus")
+      .update({ name, price })
+      .eq("id", req.params.id)
       .select();
     
     if (error) return res.status(500).json({ error: error.message });
@@ -264,27 +256,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/recipes", async (req, res) => {
-    const { inventory_id, quantity_per_unit } = req.body;
-    const { data, error } = await supabase
-      .from("recipes")
-      .insert([{ inventory_id, quantity_per_unit }])
-      .select();
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ id: data[0].id });
-  });
-
-  app.delete("/api/recipes/:id", async (req, res) => {
-    const { error } = await supabase
-      .from("recipes")
-      .delete()
-      .eq("id", req.params.id);
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ success: true });
-  });
-
   app.get("/api/units", async (req, res) => {
     const { data, error } = await supabase
       .from("units")
@@ -297,15 +268,29 @@ async function startServer() {
 
   app.post("/api/units", async (req, res) => {
     const { name } = req.body;
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: "Nama satuan tidak valid" });
+    }
+    
+    const trimmedName = name.trim().toUpperCase();
+    if (!trimmedName) {
+      return res.status(400).json({ error: "Nama satuan tidak boleh kosong" });
+    }
+
     const { data, error } = await supabase
       .from("units")
-      .insert([{ name: name.toUpperCase() }])
+      .insert([{ name: trimmedName }])
       .select();
     
     if (error) {
       if (error.code === "23505") return res.status(400).json({ error: "Unit already exists" });
       return res.status(500).json({ error: error.message });
     }
+    
+    if (!data || data.length === 0) {
+      return res.status(500).json({ error: "Gagal menyimpan satuan" });
+    }
+    
     res.json({ id: data[0].id });
   });
 
@@ -319,25 +304,77 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get("/api/purchases", async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("purchases")
+        .select("*")
+        .order("date", { ascending: false });
+      
+      if (error) throw error;
+      
+      // Fetch inventory names separately to be safe if join fails
+      const { data: invData } = await supabase.from("inventory").select("id, name");
+      const invMap = (invData || []).reduce((acc: any, item: any) => {
+        acc[item.id] = item.name;
+        return acc;
+      }, {});
+
+      const formattedData = (data || []).map((p: any) => ({
+        ...p,
+        inventory_name: invMap[p.inventory_id] || "Unknown Item"
+      }));
+      
+      res.json(formattedData);
+    } catch (error: any) {
+      console.error("Error fetching purchases:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/transactions/purchase", async (req, res) => {
     const { inventory_id, quantity, total_cost, date, description } = req.body;
+    const invId = parseInt(inventory_id);
     
-    // In Supabase, we can use RPC for transactions or just sequential calls if atomicity isn't critical for this demo
-    // For better reliability, we use sequential calls here.
     try {
+      if (isNaN(invId)) throw new Error("Invalid Inventory ID");
+
       // 1. Get current quantity
-      const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", inventory_id).single();
+      const { data: inv, error: invError } = await supabase.from("inventory").select("quantity").eq("id", invId).single();
+      if (invError) throw new Error(invError.message);
+      
       const newQty = (inv?.quantity || 0) + quantity;
 
       // 2. Update Inventory
-      await supabase.from("inventory").update({ quantity: newQty }).eq("id", inventory_id);
+      const { error: updateError } = await supabase.from("inventory").update({ quantity: newQty }).eq("id", invId);
+      if (updateError) throw new Error(updateError.message);
       
       // 3. Add Journal Entry
-      await supabase.from("journal").insert([{ date, description, debit: total_cost, credit: 0, category: "Expense" }]);
+      const { error: journalError } = await supabase.from("journal").insert([{ date, description, debit: total_cost, credit: 0, category: "Expense" }]);
+      if (journalError) throw new Error(journalError.message);
+
+      // 4. Add Purchase Record
+      const { error: purchaseError } = await supabase.from("purchases").insert([{ 
+        inventory_id: invId, 
+        quantity, 
+        total_cost, 
+        date, 
+        description 
+      }]);
+      
+      if (purchaseError) {
+        console.error("Purchase record insert failed:", purchaseError);
+        // We don't throw here because inventory and journal are already updated
+        // but we should probably warn the user. 
+        // Actually, let's throw to be consistent, but the DB is now out of sync.
+        // In a real app we'd use a transaction.
+        throw new Error("Gagal mencatat riwayat pembelian: " + purchaseError.message);
+      }
 
       res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: "Transaction failed" });
+    } catch (err: any) {
+      console.error("Transaction failed:", err);
+      res.status(500).json({ error: err.message || "Transaction failed" });
     }
   });
 
@@ -364,22 +401,11 @@ async function startServer() {
             await supabase.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
           }
         }
-      } else {
-        // Fallback to old global recipes logic if no menu_id provided
-        const { data: recipes } = await supabase.from("recipes").select("*");
-        
-        if (recipes) {
-          for (const recipe of recipes) {
-            const totalDeduction = recipe.quantity_per_unit * items_sold;
-            const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", recipe.inventory_id).single();
-            const newQty = (inv?.quantity || 0) - totalDeduction;
-            await supabase.from("inventory").update({ quantity: newQty }).eq("id", recipe.inventory_id);
-          }
-        }
       }
 
       res.json({ success: true });
     } catch (err) {
+      console.error("Sale transaction failed:", err);
       res.status(500).json({ error: "Transaction failed" });
     }
   });

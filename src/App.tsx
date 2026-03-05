@@ -19,10 +19,13 @@ import {
   ShoppingCart,
   Banknote,
   Settings,
-  Coffee
+  Coffee,
+  Edit2,
+  Save,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Recipe, Unit, Menu, MenuIngredient } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase } from './types';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -36,6 +39,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu'>('dashboard');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [profitLoss, setProfitLoss] = useState<ProfitLoss>({ income: 0, expenses: 0 });
   const [units, setUnits] = useState<Unit[]>([]);
@@ -50,14 +54,15 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes] = await Promise.all([
+      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes] = await Promise.all([
         fetch('/api/inventory'),
         fetch('/api/journal'),
         fetch('/api/assets'),
         fetch('/api/reports/profit-loss'),
         fetch('/api/units'),
         fetch('/api/menus'),
-        fetch('/api/egress-status')
+        fetch('/api/egress-status'),
+        fetch('/api/purchases')
       ]);
       
       const invData = await invRes.json();
@@ -67,14 +72,28 @@ export default function App() {
       const unitsData = await unitsRes.json();
       const menusData = await menusRes.json();
       const egressData = await egressRes.json();
+      const purchasesData = await purchasesRes.json();
 
       setInventory(Array.isArray(invData) ? invData : []);
       setJournal(Array.isArray(journalData) ? journalData : []);
+      setPurchases(Array.isArray(purchasesData) ? purchasesData : []);
       setAssets(Array.isArray(assetData) ? assetData : []);
       setProfitLoss(plData && !plData.error ? plData : { income: 0, expenses: 0 });
       setUnits(Array.isArray(unitsData) ? unitsData : []);
       setMenus(Array.isArray(menusData) ? menusData : []);
       setEgressStatus(egressData && !egressData.error ? egressData : null);
+
+      // Report errors if any
+      const errors = [
+        invData.error, journalData.error, assetData.error, 
+        plData.error, unitsData.error, menusData.error, egressData.error,
+        purchasesData.error
+      ].filter(Boolean);
+      
+      if (errors.length > 0) {
+        console.error('Some data failed to load:', errors);
+        alert('Gagal memuat beberapa data: ' + errors.join(', '));
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -268,7 +287,7 @@ export default function App() {
             )}
 
             {activeTab === 'purchase' && (
-              <PurchaseView inventory={inventory} onUpdate={fetchData} />
+              <PurchaseView inventory={inventory} purchases={purchases} onUpdate={fetchData} />
             )}
 
             {activeTab === 'sale' && (
@@ -787,7 +806,7 @@ function AssetsView({ assets, onUpdate, calculateDepreciation }: {
   );
 }
 
-function PurchaseView({ inventory, onUpdate }: { inventory: InventoryItem[], onUpdate: () => void }) {
+function PurchaseView({ inventory, purchases, onUpdate }: { inventory: InventoryItem[], purchases: Purchase[], onUpdate: () => void }) {
   const [formData, setFormData] = useState({
     inventory_id: '',
     quantity: 0,
@@ -798,79 +817,135 @@ function PurchaseView({ inventory, onUpdate }: { inventory: InventoryItem[], onU
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/transactions/purchase', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
-    alert('Pembelian berhasil dicatat!');
-    onUpdate();
+    try {
+      const response = await fetch('/api/transactions/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Terjadi kesalahan saat mencatat pembelian');
+      }
+      
+      alert('Pembelian berhasil dicatat!');
+      onUpdate();
+    } catch (error: any) {
+      alert('Gagal mencatat pembelian: ' + error.message);
+    }
   };
 
   return (
-    <div className="space-y-8 max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-10 rounded-3xl shadow-xl space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Pilih Item Stok</label>
-            <select 
-              required
-              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
-              value={formData.inventory_id}
-              onChange={e => setFormData({...formData, inventory_id: e.target.value})}
-            >
-              <option value="">-- Pilih Item --</option>
-              {inventory.map(item => (
-                <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal</label>
-            <input 
-              type="date"
-              required
-              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
-              value={formData.date}
-              onChange={e => setFormData({...formData, date: e.target.value})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
-              Jumlah (Quantity) {formData.inventory_id && `[${inventory.find(i => i.id === parseInt(formData.inventory_id))?.unit}]`}
-            </label>
-            <input 
-              type="number"
-              required
-              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-              value={formData.quantity}
-              onChange={e => setFormData({...formData, quantity: parseFloat(e.target.value)})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Total Biaya (IDR)</label>
-            <input 
-              type="number"
-              required
-              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-              value={formData.total_cost}
-              onChange={e => setFormData({...formData, total_cost: parseFloat(e.target.value)})}
-            />
+    <div className="space-y-8 max-w-4xl mx-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-1">
+          <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-xl space-y-6 sticky top-8">
+            <h3 className="text-lg font-bold text-cafe-espresso">Catat Pembelian Baru</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Pilih Item Stok</label>
+                <select 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                  value={formData.inventory_id}
+                  onChange={e => setFormData({...formData, inventory_id: e.target.value})}
+                >
+                  <option value="">-- Pilih Item --</option>
+                  {inventory.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal</label>
+                <input 
+                  type="date"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.date}
+                  onChange={e => setFormData({...formData, date: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
+                  Jumlah (Quantity) {formData.inventory_id && `[${inventory.find(i => i.id === parseInt(formData.inventory_id))?.unit}]`}
+                </label>
+                <input 
+                  type="number"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.quantity}
+                  onChange={e => setFormData({...formData, quantity: parseFloat(e.target.value)})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Total Biaya (IDR)</label>
+                <input 
+                  type="number"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.total_cost}
+                  onChange={e => setFormData({...formData, total_cost: parseFloat(e.target.value)})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Keterangan</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.description}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                />
+              </div>
+            </div>
+            <button type="submit" className="w-full bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold shadow-lg shadow-cafe-espresso/20 hover:scale-[1.02] transition-transform">
+              Catat Pembelian
+            </button>
+          </form>
+        </div>
+
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white border border-cafe-ink/5 rounded-3xl shadow-xl overflow-hidden">
+            <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-cafe-espresso">Riwayat Pembelian</h3>
+              <span className="text-[10px] uppercase tracking-widest opacity-50 font-bold">{purchases.length} Transaksi</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-cafe-cream/10 border-b border-cafe-ink/5">
+                    <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Jumlah</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Total Biaya</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-cafe-ink/5">
+                  {purchases.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-12 text-center text-sm opacity-30 italic">Belum ada riwayat pembelian</td>
+                    </tr>
+                  ) : (
+                    purchases.map(p => (
+                      <tr key={p.id} className="hover:bg-cafe-cream/5 transition-colors">
+                        <td className="p-4 text-xs font-mono">{p.date}</td>
+                        <td className="p-4">
+                          <div className="text-xs font-bold text-cafe-espresso">{p.inventory_name}</div>
+                          <div className="text-[10px] opacity-50">{p.description}</div>
+                        </td>
+                        <td className="p-4 text-xs text-right font-mono">{p.quantity}</td>
+                        <td className="p-4 text-xs text-right font-bold text-cafe-espresso">{formatCurrency(p.total_cost)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-        <div className="space-y-2">
-          <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Keterangan</label>
-          <input 
-            required
-            className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
-            value={formData.description}
-            onChange={e => setFormData({...formData, description: e.target.value})}
-          />
-        </div>
-        <button type="submit" className="w-full bg-cafe-espresso text-cafe-paper py-4 rounded-2xl text-sm font-bold shadow-lg shadow-cafe-espresso/20 hover:scale-[1.02] transition-transform">
-          Catat Pembelian
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
@@ -912,19 +987,21 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Pilih Menu (Opsional)</label>
             <select 
+              required
               className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
               value={formData.menu_id}
               onChange={e => {
                 const menuId = e.target.value;
-                const menuName = Array.isArray(menus) ? menus.find(m => m.id.toString() === menuId)?.name : null;
+                const menu = Array.isArray(menus) ? menus.find(m => m.id.toString() === menuId) : null;
                 setFormData({
                   ...formData, 
                   menu_id: menuId,
-                  description: menuName ? `Penjualan ${menuName}` : 'Penjualan Harian'
+                  description: menu ? `Penjualan ${menu.name}` : 'Penjualan Harian',
+                  amount: menu ? (menu.price * formData.items_sold) : formData.amount
                 });
               }}
             >
-              <option value="">-- Tanpa Menu (Gunakan Takaran Global) --</option>
+              <option value="">-- Pilih Menu --</option>
               {Array.isArray(menus) && menus.map(menu => (
                 <option key={menu.id} value={menu.id}>{menu.name}</option>
               ))}
@@ -948,7 +1025,15 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
               min="1"
               className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
               value={formData.items_sold}
-              onChange={e => setFormData({...formData, items_sold: parseFloat(e.target.value)})}
+              onChange={e => {
+                const qty = parseFloat(e.target.value);
+                const menu = Array.isArray(menus) ? menus.find(m => m.id.toString() === formData.menu_id) : null;
+                setFormData({
+                  ...formData, 
+                  items_sold: qty,
+                  amount: menu ? (menu.price * qty) : formData.amount
+                });
+              }}
             />
           </div>
         </div>
@@ -974,6 +1059,8 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
   const [ingredients, setIngredients] = useState<MenuIngredient[]>([]);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [newMenuName, setNewMenuName] = useState('');
+  const [newMenuPrice, setNewMenuPrice] = useState<number>(0);
+  const [editingMenu, setEditingMenu] = useState<Menu | null>(null);
   const [newIngredient, setNewIngredient] = useState({ inventory_id: '', quantity: 0 });
 
   const fetchIngredients = async (menuId: number) => {
@@ -995,12 +1082,31 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
     const res = await fetch('/api/menus', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newMenuName })
+      body: JSON.stringify({ name: newMenuName, price: newMenuPrice })
     });
     if (res.ok) {
       setNewMenuName('');
+      setNewMenuPrice(0);
       setShowAddMenu(false);
       onUpdate();
+    }
+  };
+
+  const handleUpdateMenu = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMenu) return;
+    const res = await fetch(`/api/menus/${editingMenu.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editingMenu.name, price: editingMenu.price })
+    });
+    if (res.ok) {
+      setEditingMenu(null);
+      onUpdate();
+      // Update selectedMenu if it's the one being edited
+      if (selectedMenu?.id === editingMenu.id) {
+        setSelectedMenu(editingMenu);
+      }
     }
   };
 
@@ -1047,15 +1153,28 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
           className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-4 items-end"
           onSubmit={handleAddMenu}
         >
-          <div className="flex-1 space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Menu</label>
-            <input 
-              required
-              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
-              placeholder="Misal: Kopi Susu Gula Aren"
-              value={newMenuName}
-              onChange={e => setNewMenuName(e.target.value)}
-            />
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Menu</label>
+              <input 
+                required
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                placeholder="Misal: Kopi Susu Gula Aren"
+                value={newMenuName}
+                onChange={e => setNewMenuName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Harga Jual (Rp)</label>
+              <input 
+                type="number"
+                required
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                placeholder="0"
+                value={newMenuPrice || ''}
+                onChange={e => setNewMenuPrice(parseFloat(e.target.value))}
+              />
+            </div>
           </div>
           <button type="submit" className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold">Simpan</button>
           <button type="button" onClick={() => setShowAddMenu(false)} className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold">Batal</button>
@@ -1072,16 +1191,57 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
             {Array.isArray(menus) && menus.map(menu => (
               <div 
                 key={menu.id} 
-                className={`p-4 flex justify-between items-center cursor-pointer transition-colors ${selectedMenu?.id === menu.id ? 'bg-cafe-espresso/5 border-l-4 border-cafe-espresso' : 'hover:bg-cafe-cream/20'}`}
+                className={`p-4 flex flex-col gap-2 cursor-pointer transition-colors ${selectedMenu?.id === menu.id ? 'bg-cafe-espresso/5 border-l-4 border-cafe-espresso' : 'hover:bg-cafe-cream/20'}`}
                 onClick={() => setSelectedMenu(menu)}
               >
-                <span className="text-sm font-medium">{menu.name}</span>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleDeleteMenu(menu.id); }}
-                  className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {editingMenu?.id === menu.id ? (
+                  <form onSubmit={handleUpdateMenu} className="space-y-3" onClick={e => e.stopPropagation()}>
+                    <input 
+                      autoFocus
+                      className="w-full border-b border-cafe-espresso py-1 text-sm focus:outline-none"
+                      value={editingMenu.name}
+                      onChange={e => setEditingMenu({...editingMenu, name: e.target.value})}
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold opacity-40">Rp</span>
+                      <input 
+                        type="number"
+                        className="flex-1 border-b border-cafe-espresso py-1 text-sm font-mono focus:outline-none"
+                        value={editingMenu.price}
+                        onChange={e => setEditingMenu({...editingMenu, price: parseFloat(e.target.value)})}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setEditingMenu(null)} className="p-1 text-cafe-latte hover:text-cafe-espresso">
+                        <X size={16} />
+                      </button>
+                      <button type="submit" className="p-1 text-emerald-500 hover:text-emerald-700">
+                        <Save size={16} />
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm font-medium">{menu.name}</span>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setEditingMenu(menu); }}
+                          className="p-2 text-cafe-latte hover:text-cafe-espresso transition-colors"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteMenu(menu.id); }}
+                          className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono text-cafe-latte">{formatCurrency(menu.price || 0)}</span>
+                  </>
+                )}
               </div>
             ))}
             {(!Array.isArray(menus) || menus.length === 0) && (
@@ -1097,7 +1257,10 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
               <div className="flex justify-between items-center border-b border-cafe-ink/5 pb-4">
                 <div>
                   <h4 className="text-2xl font-serif italic text-cafe-espresso">{selectedMenu.name}</h4>
-                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mt-1">Pengaturan Takaran Bahan Baku</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">Pengaturan Takaran Bahan Baku</p>
+                    <span className="text-xs font-mono text-cafe-espresso bg-cafe-cream px-2 py-0.5 rounded-full">{formatCurrency(selectedMenu.price || 0)}</span>
+                  </div>
                 </div>
                 <div className="p-3 bg-cafe-cream rounded-2xl">
                   <Calculator size={24} className="text-cafe-espresso" />
@@ -1183,43 +1346,16 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
 }
 
 function SettingsView({ inventory, units, onUpdateUnits }: { inventory: InventoryItem[], units: Unit[], onUpdateUnits: () => void }) {
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [newRecipe, setNewRecipe] = useState({ inventory_id: '', quantity_per_unit: 0 });
   const [newUnit, setNewUnit] = useState('');
-
-  const fetchRecipes = async () => {
-    const res = await fetch('/api/recipes');
-    const data = await res.json();
-    setRecipes(data);
-  };
-
-  useEffect(() => {
-    fetchRecipes();
-  }, []);
-
-  const handleAddRecipe = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await fetch('/api/recipes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newRecipe)
-    });
-    setNewRecipe({ inventory_id: '', quantity_per_unit: 0 });
-    fetchRecipes();
-  };
-
-  const handleDeleteRecipe = async (id: number) => {
-    await fetch(`/api/recipes/${id}`, { method: 'DELETE' });
-    fetchRecipes();
-  };
 
   const handleAddUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUnit) return;
+    const trimmedUnit = newUnit.trim();
+    if (!trimmedUnit) return;
     const res = await fetch('/api/units', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newUnit })
+      body: JSON.stringify({ name: trimmedUnit })
     });
     if (res.ok) {
       setNewUnit('');
@@ -1238,80 +1374,7 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recipe Settings */}
-        <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Calculator className="text-cafe-espresso" size={20} />
-            <h4 className="text-lg font-bold text-cafe-espresso">Takaran Penjualan</h4>
-          </div>
-          <p className="text-xs text-cafe-ink/60 leading-relaxed">
-            Atur berapa banyak stok yang berkurang untuk setiap 1 unit penjualan (misal: 1 cup kopi).
-          </p>
-
-          <form onSubmit={handleAddRecipe} className="space-y-4 pt-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item Stok</label>
-                <select 
-                  required
-                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
-                  value={newRecipe.inventory_id}
-                  onChange={e => setNewRecipe({...newRecipe, inventory_id: e.target.value})}
-                >
-                  <option value="">-- Pilih --</option>
-                  {inventory.map(item => (
-                    <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
-                  Takaran (per unit) {newRecipe.inventory_id && `[${inventory.find(i => i.id === parseInt(newRecipe.inventory_id))?.unit}]`}
-                </label>
-                <input 
-                  type="number"
-                  required
-                  step="0.01"
-                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-                  placeholder="Misal: 20"
-                  value={newRecipe.quantity_per_unit || ''}
-                  onChange={e => setNewRecipe({...newRecipe, quantity_per_unit: parseFloat(e.target.value)})}
-                />
-              </div>
-            </div>
-            <button type="submit" className="w-full bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-xs font-bold hover:shadow-md transition-all">
-              Tambah Takaran
-            </button>
-          </form>
-
-          <div className="pt-6 space-y-3">
-            <h5 className="text-[10px] uppercase tracking-widest opacity-50 font-bold border-b border-cafe-ink/5 pb-2">Daftar Takaran Aktif</h5>
-            {recipes.length === 0 ? (
-              <p className="text-xs italic text-cafe-ink/40 py-4 text-center">Belum ada takaran yang diatur.</p>
-            ) : (
-              <div className="divide-y divide-cafe-ink/5">
-                {recipes.map(recipe => (
-                  <div key={recipe.id} className="py-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-sm font-medium text-cafe-ink">{recipe.inventory_name}</p>
-                      <p className="text-[10px] text-cafe-latte font-bold uppercase tracking-tighter">
-                        1 Unit Jual = {recipe.quantity_per_unit} {recipe.inventory_unit}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => handleDeleteRecipe(recipe.id)}
-                      className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
+      <div className="max-w-2xl mx-auto">
         {/* Unit Settings */}
         <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
           <div className="flex items-center gap-3 mb-2">
@@ -1344,17 +1407,21 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
           <div className="pt-6 space-y-3">
             <h5 className="text-[10px] uppercase tracking-widest opacity-50 font-bold border-b border-cafe-ink/5 pb-2">Daftar Satuan Aktif</h5>
             <div className="grid grid-cols-2 gap-2">
-              {units.map(unit => (
-                <div key={unit.id} className="flex justify-between items-center p-3 bg-cafe-cream/10 rounded-xl border border-cafe-ink/5">
-                  <span className="text-xs font-bold text-cafe-espresso">{unit.name}</span>
-                  <button 
-                    onClick={() => handleDeleteUnit(unit.id)}
-                    className="text-rose-500 hover:text-rose-700 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+              {units.length === 0 ? (
+                <p className="col-span-2 text-center py-8 text-xs opacity-30 italic">Belum ada satuan yang terdaftar.</p>
+              ) : (
+                units.map(unit => (
+                  <div key={unit.id} className="flex justify-between items-center p-3 bg-cafe-cream/10 rounded-xl border border-cafe-ink/5">
+                    <span className="text-xs font-bold text-cafe-espresso">{unit.name}</span>
+                    <button 
+                      onClick={() => handleDeleteUnit(unit.id)}
+                      className="text-rose-500 hover:text-rose-700 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

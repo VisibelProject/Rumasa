@@ -35,17 +35,10 @@ export interface ProfitLoss {
   expenses: number;
 }
 
-export interface Recipe {
-  id: number;
-  inventory_id: number;
-  inventory_name: string;
-  inventory_unit: string;
-  quantity_per_unit: number;
-}
-
 export interface Menu {
   id: number;
   name: string;
+  price: number;
 }
 
 export interface MenuIngredient {
@@ -55,4 +48,14 @@ export interface MenuIngredient {
   inventory_name: string;
   inventory_unit: string;
   quantity: number;
+}
+
+export interface Purchase {
+  id: number;
+  inventory_id: number;
+  inventory_name?: string;
+  quantity: number;
+  total_cost: number;
+  date: string;
+  description: string;
 }
