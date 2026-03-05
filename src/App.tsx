@@ -11,6 +11,8 @@ import {
   BarChart3, 
   HardDrive, 
   Plus, 
+  Minus,
+  Edit2,
   RefreshCw,
   TrendingUp,
   TrendingDown,
@@ -20,7 +22,6 @@ import {
   Banknote,
   Settings,
   Coffee,
-  Edit2,
   Save,
   X
 } from 'lucide-react';
@@ -310,7 +311,8 @@ export default function App() {
 
 function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', unit: '', quantity: 0, cost_per_unit: 0 });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0 });
+  const [editingItem, setEditingItem] = useState<any>(null);
 
   useEffect(() => {
     if (units.length > 0 && !newItem.unit) {
@@ -335,6 +337,27 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quantity: newQty })
     });
+    onUpdate();
+  };
+
+  const handleAdjustStock = async (id: number, currentQty: number, type: 'add' | 'sub') => {
+    const amount = prompt(`Masukkan jumlah untuk ${type === 'add' ? 'ditambah' : 'dikurang'}:`);
+    if (amount && !isNaN(parseFloat(amount))) {
+      const val = parseFloat(amount);
+      const newQty = type === 'add' ? currentQty + val : Math.max(0, currentQty - val);
+      await handleUpdateStock(id, newQty);
+    }
+  };
+
+  const handleEditItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    await fetch(`/api/inventory/${editingItem.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingItem)
+    });
+    setEditingItem(null);
     onUpdate();
   };
 
@@ -393,9 +416,64 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
               onChange={e => setNewItem({...newItem, quantity: parseFloat(e.target.value)})}
             />
           </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Harga Beli / Satuan</label>
+            <input 
+              type="number"
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newItem.cost_per_unit}
+              onChange={e => setNewItem({...newItem, cost_per_unit: parseFloat(e.target.value)})}
+            />
+          </div>
           <div className="flex items-end gap-3">
             <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Simpan</button>
             <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
+          </div>
+        </motion.form>
+      )}
+
+      {editingItem && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6"
+          onSubmit={handleEditItem}
+        >
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Item</label>
+            <input 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+              value={editingItem.name}
+              onChange={e => setEditingItem({...editingItem, name: e.target.value})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={editingItem.unit}
+              onChange={e => setEditingItem({...editingItem, unit: e.target.value})}
+            >
+              {units.map(u => (
+                <option key={u.id} value={u.name}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Harga / Unit</label>
+            <input 
+              type="number"
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={editingItem.cost_per_unit}
+              onChange={e => setEditingItem({...editingItem, cost_per_unit: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="flex items-end gap-3">
+            <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Update</button>
+            <button type="button" onClick={() => setEditingItem(null)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
           </div>
         </motion.form>
       )}
@@ -406,6 +484,7 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Harga / Unit</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Saat Ini</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
             </tr>
@@ -415,28 +494,39 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
               <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
                 <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
                 <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                <td className="p-6 text-sm text-right font-mono">{formatCurrency(item.cost_per_unit || 0)}</td>
                 <td className="p-6 text-sm text-right font-mono">
                   <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.quantity < 10 ? 'bg-rose-50 text-rose-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
                     {item.quantity}
                   </span>
                 </td>
                 <td className="p-6 text-right">
-                  <div className="flex justify-end gap-3">
+                  <div className="flex justify-end gap-2">
                     <button 
-                      onClick={() => handleUpdateStock(item.id, item.quantity + 1)}
+                      onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
                       className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
+                      title="Tambah Stok"
                     >
                       <Plus size={16} />
                     </button>
                     <button 
-                      onClick={() => handleUpdateStock(item.id, Math.max(0, item.quantity - 1))}
+                      onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
                       className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
+                      title="Kurangi Stok"
                     >
-                      <RefreshCw size={16} />
+                      <Minus size={16} />
+                    </button>
+                    <button 
+                      onClick={() => setEditingItem(item)}
+                      className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
+                      title="Edit Item"
+                    >
+                      <Edit2 size={16} />
                     </button>
                     <button 
                       onClick={() => handleDelete(item.id)}
                       className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
+                      title="Hapus"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -1031,6 +1121,24 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
                 <option key={menu.id} value={menu.id}>{menu.name}</option>
               ))}
             </select>
+            {formData.menu_id && (
+              <div className="flex gap-2 mt-2">
+                {(() => {
+                  const menu = Array.isArray(menus) ? menus.find(m => m.id.toString() === formData.menu_id) : null;
+                  if (menu && menu.hpp) {
+                    return (
+                      <>
+                        <span className="text-[10px] font-mono text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">HPP: {formatCurrency(menu.hpp * formData.items_sold)}</span>
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${menu.profit && menu.profit > 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
+                          Laba: {formatCurrency((menu.profit || 0) * formData.items_sold)}
+                        </span>
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Total Penjualan (IDR)</label>
@@ -1272,7 +1380,17 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                         </button>
                       </div>
                     </div>
-                    <span className="text-xs font-mono text-cafe-latte">{formatCurrency(menu.price || 0)}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-mono text-cafe-latte">{formatCurrency(menu.price || 0)}</span>
+                      {menu.hpp !== undefined && menu.hpp > 0 && (
+                        <div className="flex gap-2 text-[9px] font-mono opacity-60">
+                          <span>HPP: {formatCurrency(menu.hpp)}</span>
+                          <span className={menu.profit && menu.profit > 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                            Laba: {formatCurrency(menu.profit || 0)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -1290,9 +1408,16 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
               <div className="flex justify-between items-center border-b border-cafe-ink/5 pb-4">
                 <div>
                   <h4 className="text-2xl font-serif italic text-cafe-espresso">{selectedMenu.name}</h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">Pengaturan Takaran Bahan Baku</p>
-                    <span className="text-xs font-mono text-cafe-espresso bg-cafe-cream px-2 py-0.5 rounded-full">{formatCurrency(selectedMenu.price || 0)}</span>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <span className="text-xs font-mono text-cafe-espresso bg-cafe-cream px-2 py-0.5 rounded-full">Jual: {formatCurrency(selectedMenu.price || 0)}</span>
+                    {selectedMenu.hpp !== undefined && selectedMenu.hpp > 0 && (
+                      <>
+                        <span className="text-xs font-mono text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">HPP: {formatCurrency(selectedMenu.hpp)}</span>
+                        <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${selectedMenu.profit && selectedMenu.profit > 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
+                          Laba: {formatCurrency(selectedMenu.profit || 0)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="p-3 bg-cafe-cream rounded-2xl">

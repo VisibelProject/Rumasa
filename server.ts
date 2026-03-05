@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createClient } from "@supabase/supabase-js";
@@ -71,10 +70,16 @@ async function startServer() {
   });
 
   app.put("/api/inventory/:id", async (req, res) => {
-    const { quantity } = req.body;
+    const { name, unit, quantity, cost_per_unit } = req.body;
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (unit !== undefined) updateData.unit = unit;
+    if (quantity !== undefined) updateData.quantity = quantity;
+    if (cost_per_unit !== undefined) updateData.cost_per_unit = cost_per_unit;
+
     const { error } = await supabase
       .from("inventory")
-      .update({ quantity })
+      .update(updateData)
       .eq("id", req.params.id);
     
     if (error) return res.status(500).json({ error: error.message });
@@ -173,13 +178,41 @@ async function startServer() {
   });
 
   app.get("/api/menus", async (req, res) => {
-    const { data, error } = await supabase
-      .from("menus")
-      .select("*")
-      .order("name", { ascending: true });
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+    try {
+      const { data: menus, error: menusError } = await supabase
+        .from("menus")
+        .select("*")
+        .order("name", { ascending: true });
+      
+      if (menusError) throw menusError;
+
+      const { data: ingredients, error: ingError } = await supabase
+        .from("menu_ingredients")
+        .select(`
+          menu_id,
+          quantity,
+          inventory:inventory_id (cost_per_unit)
+        `);
+      
+      if (ingError) throw ingError;
+
+      const menusWithHpp = (menus || []).map((menu: any) => {
+        const menuIngs = (ingredients || []).filter((ing: any) => ing.menu_id === menu.id);
+        const hpp = menuIngs.reduce((sum: number, ing: any) => {
+          const cost = ing.inventory?.cost_per_unit || 0;
+          return sum + (ing.quantity * cost);
+        }, 0);
+        return {
+          ...menu,
+          hpp,
+          profit: (menu.price || 0) - hpp
+        };
+      });
+
+      res.json(menusWithHpp);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.post("/api/menus", async (req, res) => {
@@ -346,7 +379,15 @@ async function startServer() {
       const newQty = (inv?.quantity || 0) + quantity;
 
       // 2. Update Inventory
-      const { error: updateError } = await supabase.from("inventory").update({ quantity: newQty }).eq("id", invId);
+      const costPerUnit = total_cost / quantity;
+      const { error: updateError } = await supabase
+        .from("inventory")
+        .update({ 
+          quantity: newQty,
+          cost_per_unit: costPerUnit
+        })
+        .eq("id", invId);
+      
       if (updateError) throw new Error(updateError.message);
       
       // 3. Add Journal Entry
@@ -442,6 +483,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -456,15 +498,16 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-
-  // Only listen if not running as a serverless function (Vercel)
-  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
-  return app;
 }
 
-// Export the promise of the app for Vercel
-export default startServer();
+// Initialize routes
+startServer();
+
+// Start server if not on Vercel
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

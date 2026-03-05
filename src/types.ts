@@ -39,6 +39,8 @@ export interface Menu {
   id: number;
   name: string;
   price: number;
+  hpp?: number;
+  profit?: number;
 }
 
 export interface MenuIngredient {
