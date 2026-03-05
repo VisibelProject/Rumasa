@@ -364,10 +364,6 @@ async function startServer() {
       
       if (purchaseError) {
         console.error("Purchase record insert failed:", purchaseError);
-        // We don't throw here because inventory and journal are already updated
-        // but we should probably warn the user. 
-        // Actually, let's throw to be consistent, but the DB is now out of sync.
-        // In a real app we'd use a transaction.
         throw new Error("Gagal mencatat riwayat pembelian: " + purchaseError.message);
       }
 
@@ -375,6 +371,40 @@ async function startServer() {
     } catch (err: any) {
       console.error("Transaction failed:", err);
       res.status(500).json({ error: err.message || "Transaction failed" });
+    }
+  });
+
+  app.delete("/api/purchases/:id", async (req, res) => {
+    try {
+      // 1. Get purchase details
+      const { data: purchase, error: fetchError } = await supabase
+        .from("purchases")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+      
+      if (fetchError || !purchase) throw new Error("Purchase not found");
+
+      // 2. Reverse inventory
+      const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", purchase.inventory_id).single();
+      const newQty = (inv?.quantity || 0) - purchase.quantity;
+      await supabase.from("inventory").update({ quantity: newQty }).eq("id", purchase.inventory_id);
+
+      // 3. Delete matching journal entry
+      await supabase.from("journal")
+        .delete()
+        .eq("date", purchase.date)
+        .eq("description", purchase.description)
+        .eq("debit", purchase.total_cost)
+        .eq("category", "Expense");
+
+      // 4. Delete purchase record
+      const { error: deleteError } = await supabase.from("purchases").delete().eq("id", req.params.id);
+      if (deleteError) throw deleteError;
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

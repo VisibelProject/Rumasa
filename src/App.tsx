@@ -837,6 +837,21 @@ function PurchaseView({ inventory, purchases, onUpdate }: { inventory: Inventory
     }
   };
 
+  const handleDeletePurchase = async (id: number) => {
+    if (!confirm('Hapus riwayat pembelian ini? Stok akan dikurangi kembali.')) return;
+    try {
+      const res = await fetch(`/api/purchases/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal menghapus: ' + error.error);
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat menghapus.');
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -920,12 +935,13 @@ function PurchaseView({ inventory, purchases, onUpdate }: { inventory: Inventory
                     <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Jumlah</th>
                     <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Total Biaya</th>
+                    <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-center">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-cafe-ink/5">
                   {purchases.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-12 text-center text-sm opacity-30 italic">Belum ada riwayat pembelian</td>
+                      <td colSpan={5} className="p-12 text-center text-sm opacity-30 italic">Belum ada riwayat pembelian</td>
                     </tr>
                   ) : (
                     purchases.map(p => (
@@ -937,6 +953,15 @@ function PurchaseView({ inventory, purchases, onUpdate }: { inventory: Inventory
                         </td>
                         <td className="p-4 text-xs text-right font-mono">{p.quantity}</td>
                         <td className="p-4 text-xs text-right font-bold text-cafe-espresso">{formatCurrency(p.total_cost)}</td>
+                        <td className="p-4 text-center">
+                          <button 
+                            onClick={() => handleDeletePurchase(p.id)}
+                            className="p-2 text-cafe-latte hover:text-red-500 transition-colors"
+                            title="Hapus"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -1095,18 +1120,26 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
   const handleUpdateMenu = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMenu) return;
-    const res = await fetch(`/api/menus/${editingMenu.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editingMenu.name, price: editingMenu.price })
-    });
-    if (res.ok) {
-      setEditingMenu(null);
-      onUpdate();
-      // Update selectedMenu if it's the one being edited
-      if (selectedMenu?.id === editingMenu.id) {
-        setSelectedMenu(editingMenu);
+    try {
+      const res = await fetch(`/api/menus/${editingMenu.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editingMenu.name, price: editingMenu.price })
+      });
+      if (res.ok) {
+        const updatedMenu = await res.json();
+        setEditingMenu(null);
+        onUpdate();
+        // Update selectedMenu if it's the one being edited
+        if (selectedMenu?.id === updatedMenu.id) {
+          setSelectedMenu(updatedMenu);
+        }
+      } else {
+        const error = await res.json();
+        alert('Gagal memperbarui menu: ' + (error.error || 'Unknown error'));
       }
+    } catch (error) {
+      alert('Terjadi kesalahan koneksi saat memperbarui menu.');
     }
   };
 
@@ -1171,8 +1204,8 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                 required
                 className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
                 placeholder="0"
-                value={newMenuPrice || ''}
-                onChange={e => setNewMenuPrice(parseFloat(e.target.value))}
+                value={newMenuPrice ?? 0}
+                onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)}
               />
             </div>
           </div>
@@ -1199,7 +1232,7 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                     <input 
                       autoFocus
                       className="w-full border-b border-cafe-espresso py-1 text-sm focus:outline-none"
-                      value={editingMenu.name}
+                      value={editingMenu.name || ''}
                       onChange={e => setEditingMenu({...editingMenu, name: e.target.value})}
                     />
                     <div className="flex items-center gap-2">
@@ -1207,8 +1240,8 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                       <input 
                         type="number"
                         className="flex-1 border-b border-cafe-espresso py-1 text-sm font-mono focus:outline-none"
-                        value={editingMenu.price}
-                        onChange={e => setEditingMenu({...editingMenu, price: parseFloat(e.target.value)})}
+                        value={editingMenu.price ?? 0}
+                        onChange={e => setEditingMenu({...editingMenu, price: parseFloat(e.target.value) || 0})}
                       />
                     </div>
                     <div className="flex justify-end gap-2">
