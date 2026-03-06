@@ -33,7 +33,7 @@ import {
   Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole } from './types';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -45,6 +45,13 @@ const formatCurrency = (amount: number) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA'>('dashboard');
+  const [userRole, setUserRole] = useState<UserRole>(() => {
+    const saved = localStorage.getItem('userRole');
+    return (saved as UserRole) || 'Manager';
+  });
+  const [lowStockThreshold, setLowStockThreshold] = useState<number>(() => {
+    return parseInt(localStorage.getItem('lowStockThreshold') || '10');
+  });
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -59,6 +66,14 @@ export default function App() {
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [isStockOpen, setIsStockOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('userRole', userRole);
+  }, [userRole]);
+
+  useEffect(() => {
+    localStorage.setItem('lowStockThreshold', lowStockThreshold.toString());
+  }, [lowStockThreshold]);
 
   useEffect(() => {
     fetchData();
@@ -156,15 +171,16 @@ export default function App() {
         
         <nav className={`flex-1 ${isMinimized ? 'px-2' : 'px-6'} py-4 space-y-3 overflow-y-auto transition-all`}>
           {[
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-            { id: 'purchase', icon: ShoppingCart, label: 'Pembelian' },
-            { id: 'sale', icon: Banknote, label: 'Penjualan' },
-            { id: 'menu', icon: Coffee, label: 'Menu' },
+            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['Manager', 'Admin', 'Finance'] },
+            { id: 'purchase', icon: ShoppingCart, label: 'Pembelian', roles: ['Manager', 'Admin', 'Inventory'] },
+            { id: 'sale', icon: Banknote, label: 'Penjualan', roles: ['Manager', 'Admin', 'Finance'] },
+            { id: 'menu', icon: Coffee, label: 'Menu', roles: ['Manager', 'Admin', 'Inventory'] },
             { 
               id: 'stock-group', 
               icon: Package, 
               label: 'Stock',
               isGroup: true,
+              roles: ['Manager', 'Admin', 'Inventory'],
               subItems: [
                 { id: 'Stock Sistem', icon: Package, label: 'Stock Sistem' },
                 { id: 'Stock Opname', icon: RefreshCw, label: 'Stock Opname' },
@@ -175,6 +191,7 @@ export default function App() {
               icon: BookOpen, 
               label: 'Report',
               isGroup: true,
+              roles: ['Manager', 'Admin', 'Finance'],
               subItems: [
                 { id: 'journal', icon: BookOpen, label: 'Jurnal Umum' },
                 { id: 'COA', icon: List, label: 'Chart of Accounts' },
@@ -182,9 +199,9 @@ export default function App() {
                 { id: 'reports', icon: BarChart3, label: 'Laba Rugi' },
               ]
             },
-            { id: 'assets', icon: HardDrive, label: 'Manajemen Aset' },
-            { id: 'settings', icon: Settings, label: 'Settings' },
-          ].map((item) => {
+            { id: 'assets', icon: HardDrive, label: 'Manajemen Aset', roles: ['Manager', 'Admin'] },
+            { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory'] },
+          ].filter(item => item.roles.includes(userRole)).map((item) => {
             if (item.isGroup) {
               const isActive = item.subItems?.some(sub => sub.id === activeTab);
               const isOpen = item.id === 'journal-group' ? isJournalOpen : isStockOpen;
@@ -333,7 +350,7 @@ export default function App() {
                       <Package size={18} className="text-cafe-latte" />
                     </div>
                     <div className="divide-y divide-cafe-ink/5">
-                      {inventory.filter(i => i.quantity < 10).slice(0, 5).map(item => (
+                      {inventory.filter(i => i.quantity < lowStockThreshold).slice(0, 5).map(item => (
                         <div key={item.id} className="p-6 flex justify-between items-center hover:bg-cafe-cream/20 transition-colors">
                           <span className="text-sm font-medium">{item.name}</span>
                           <span className="font-mono text-[11px] px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 font-bold">
@@ -341,7 +358,7 @@ export default function App() {
                           </span>
                         </div>
                       ))}
-                      {inventory.filter(i => i.quantity < 10).length === 0 && (
+                      {inventory.filter(i => i.quantity < lowStockThreshold).length === 0 && (
                         <div className="p-10 text-center text-sm opacity-40 italic font-serif">Semua stok aman.</div>
                       )}
                     </div>
@@ -371,19 +388,19 @@ export default function App() {
             )}
 
             {activeTab === 'Stock Sistem' && (
-              <InventoryView inventory={inventory} units={units} onUpdate={fetchData} />
+              <InventoryView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'Stock Opname' && (
-              <StockOpnameView stockOpnames={stockOpnames} inventory={inventory} units={units} onUpdate={fetchData} />
+              <StockOpnameView stockOpnames={stockOpnames} inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'journal' && (
-              <JournalView journal={journal} COA={COA} onUpdate={fetchData} />
+              <JournalView journal={journal} COA={COA} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'COA' && (
-              <COAView COA={COA} onUpdate={fetchData} />
+              <COAView COA={COA} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'worksheet' && (
@@ -395,23 +412,31 @@ export default function App() {
             )}
 
             {activeTab === 'assets' && (
-              <AssetsView assets={assets} onUpdate={fetchData} calculateDepreciation={calculateDepreciation} />
+              <AssetsView assets={assets} onUpdate={fetchData} calculateDepreciation={calculateDepreciation} userRole={userRole} />
             )}
 
             {activeTab === 'purchase' && (
-              <PurchaseView inventory={inventory} purchases={purchases} onUpdate={fetchData} />
+              <PurchaseView inventory={inventory} purchases={purchases} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'sale' && (
-              <SaleView menus={menus} onUpdate={fetchData} />
+              <SaleView menus={menus} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'menu' && (
-              <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} />
+              <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} userRole={userRole} />
             )}
 
             {activeTab === 'settings' && (
-              <SettingsView inventory={inventory} units={units} onUpdateUnits={fetchData} />
+              <SettingsView 
+                inventory={inventory} 
+                units={units} 
+                onUpdateUnits={fetchData} 
+                userRole={userRole} 
+                setUserRole={setUserRole} 
+                lowStockThreshold={lowStockThreshold}
+                setLowStockThreshold={setLowStockThreshold}
+              />
             )}
           </AnimatePresence>
         </div>
@@ -420,7 +445,7 @@ export default function App() {
   );
 }
 
-function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void }) {
+function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0 });
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -482,12 +507,14 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h3 className="text-xl font-serif italic text-cafe-espresso">Manajemen Inventaris</h3>
-        <button 
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
-        >
-          <Plus size={18} /> Tambah Item
-        </button>
+        {userRole !== 'Admin' && (
+          <button 
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+          >
+            <Plus size={18} /> Tambah Item
+          </button>
+        )}
       </div>
 
       {showAdd && (
@@ -619,34 +646,38 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
                   </td>
                   <td className="p-6 text-right">
                     <div className="flex justify-end gap-2">
-                      <button 
-                        onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
-                        className="p-2 rounded-lg border border-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
-                        title="Tambah Stok"
-                      >
-                        <Plus size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
-                        className="p-2 rounded-lg border border-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"
-                        title="Kurang Stok"
-                      >
-                        <Minus size={16} />
-                      </button>
-                      <button 
-                        onClick={() => setEditingItem(item)}
-                        className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
-                        title="Edit"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(item.id)}
-                        className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
-                        title="Hapus"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {userRole !== 'Admin' && (
+                        <>
+                          <button 
+                            onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
+                            className="p-2 rounded-lg border border-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
+                            title="Tambah Stok"
+                          >
+                            <Plus size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
+                            className="p-2 rounded-lg border border-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"
+                            title="Kurang Stok"
+                          >
+                            <Minus size={16} />
+                          </button>
+                          <button 
+                            onClick={() => setEditingItem(item)}
+                            className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(item.id)}
+                            className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
+                            title="Hapus"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1562,7 +1593,7 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
   );
 }
 
-function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], menus: Menu[], onUpdate: () => void }) {
+function MenuView({ inventory, menus, onUpdate, userRole }: { inventory: InventoryItem[], menus: Menu[], onUpdate: () => void, userRole: UserRole }) {
   const [selectedMenu, setSelectedMenu] = useState<Menu | null>(null);
   const [ingredients, setIngredients] = useState<MenuIngredient[]>([]);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -1654,12 +1685,14 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h3 className="text-xl font-serif italic text-cafe-espresso">Daftar Menu & Takaran</h3>
-        <button 
-          onClick={() => setShowAddMenu(true)}
-          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
-        >
-          <Plus size={18} /> Menu Baru
-        </button>
+        {userRole === 'Manager' && (
+          <button 
+            onClick={() => setShowAddMenu(true)}
+            className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+          >
+            <Plus size={18} /> Menu Baru
+          </button>
+        )}
       </div>
 
       {showAddMenu && (
@@ -1740,20 +1773,22 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                   <>
                     <div className="flex justify-between items-start">
                       <span className="text-sm font-medium">{menu.name}</span>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); setEditingMenu(menu); }}
-                          className="p-2 text-cafe-latte hover:text-cafe-espresso transition-colors"
-                        >
-                          <Edit2 size={14} />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleDeleteMenu(menu.id); }}
-                          className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {userRole === 'Manager' && (
+                        <div className="flex items-center gap-1">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setEditingMenu(menu); }}
+                            className="p-2 text-cafe-latte hover:text-cafe-espresso transition-colors"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteMenu(menu.id); }}
+                            className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-mono text-cafe-latte">{formatCurrency(menu.price || 0)}</span>
@@ -1800,38 +1835,40 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                 </div>
               </div>
 
-              <form onSubmit={handleAddIngredient} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Bahan Baku</label>
-                  <select 
-                    required
-                    className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
-                    value={newIngredient.inventory_id}
-                    onChange={e => setNewIngredient({...newIngredient, inventory_id: e.target.value})}
-                  >
-                    <option value="">-- Pilih Bahan --</option>
-                    {inventory.map(item => (
-                      <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
-                    Takaran {newIngredient.inventory_id && `[${inventory.find(i => i.id === parseInt(newIngredient.inventory_id))?.unit}]`}
-                  </label>
-                  <input 
-                    type="number"
-                    required
-                    step="0.01"
-                    className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-                    value={newIngredient.quantity || ''}
-                    onChange={e => setNewIngredient({...newIngredient, quantity: parseFloat(e.target.value)})}
-                  />
-                </div>
-                <button type="submit" className="bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold hover:shadow-md transition-all">
-                  Tambah Takaran
-                </button>
-              </form>
+              {userRole === 'Manager' && (
+                <form onSubmit={handleAddIngredient} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Bahan Baku</label>
+                    <select 
+                      required
+                      className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                      value={newIngredient.inventory_id}
+                      onChange={e => setNewIngredient({...newIngredient, inventory_id: e.target.value})}
+                    >
+                      <option value="">-- Pilih Bahan --</option>
+                      {inventory.map(item => (
+                        <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
+                      Takaran {newIngredient.inventory_id && `[${inventory.find(i => i.id === parseInt(newIngredient.inventory_id))?.unit}]`}
+                    </label>
+                    <input 
+                      type="number"
+                      required
+                      step="0.01"
+                      className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                      value={newIngredient.quantity || ''}
+                      onChange={e => setNewIngredient({...newIngredient, quantity: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                  <button type="submit" className="bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold hover:shadow-md transition-all">
+                    Tambah Takaran
+                  </button>
+                </form>
+              )}
 
               <div className="space-y-4">
                 <h5 className="text-[10px] uppercase tracking-widest opacity-50 font-bold border-b border-cafe-ink/5 pb-2">Daftar Bahan & Takaran</h5>
@@ -1849,12 +1886,14 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
                           </p>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleDeleteIngredient(ing.id)}
-                        className="p-2 text-rose-400 opacity-0 group-hover:opacity-100 hover:text-rose-600 transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {userRole === 'Manager' && (
+                        <button 
+                          onClick={() => handleDeleteIngredient(ing.id)}
+                          className="p-2 text-rose-400 opacity-0 group-hover:opacity-100 hover:text-rose-600 transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   ))}
                   {(!Array.isArray(ingredients) || ingredients.length === 0) && (
@@ -1878,7 +1917,7 @@ function MenuView({ inventory, menus, onUpdate }: { inventory: InventoryItem[], 
   );
 }
 
-function SettingsView({ inventory, units, onUpdateUnits }: { inventory: InventoryItem[], units: Unit[], onUpdateUnits: () => void }) {
+function SettingsView({ inventory, units, onUpdateUnits, userRole, setUserRole, lowStockThreshold, setLowStockThreshold }: { inventory: InventoryItem[], units: Unit[], onUpdateUnits: () => void, userRole: UserRole, setUserRole: (role: UserRole) => void, lowStockThreshold: number, setLowStockThreshold: (val: number) => void }) {
   const [newUnit, setNewUnit] = useState('');
 
   const handleAddUnit = async (e: React.FormEvent) => {
@@ -1907,7 +1946,55 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
 
   return (
     <div className="space-y-8">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-auto space-y-8">
+        {/* Role Settings */}
+        <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
+          <div className="flex items-center gap-3">
+            <Settings className="text-cafe-espresso" size={20} />
+            <h4 className="text-lg font-bold text-cafe-espresso">Pengaturan Role</h4>
+          </div>
+          <p className="text-xs text-cafe-ink/60 leading-relaxed">
+            Pilih role Anda untuk menyesuaikan akses fitur dan izin dalam aplikasi.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {(['Manager', 'Admin', 'Inventory', 'Finance'] as UserRole[]).map((role) => (
+              <button
+                key={role}
+                onClick={() => setUserRole(role)}
+                className={`px-4 py-3 rounded-xl text-xs font-bold transition-all border ${
+                  userRole === role
+                    ? 'bg-cafe-espresso text-cafe-paper border-cafe-espresso shadow-md'
+                    : 'bg-white text-cafe-ink/60 border-cafe-ink/10 hover:border-cafe-espresso/30'
+                }`}
+              >
+                {role}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Low Stock Settings */}
+        {userRole === 'Inventory' || userRole === 'Manager' ? (
+          <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="text-cafe-espresso" size={20} />
+              <h4 className="text-lg font-bold text-cafe-espresso">Pengingat Stok Menipis</h4>
+            </div>
+            <p className="text-xs text-cafe-ink/60 leading-relaxed">
+              Atur ambang batas stok minimum untuk memicu peringatan "Stok Menipis" di dashboard.
+            </p>
+            <div className="flex items-center gap-4">
+              <input 
+                type="number"
+                className="w-24 border-b border-cafe-ink/10 py-2 text-sm font-mono focus:border-cafe-espresso focus:outline-none transition-colors"
+                value={lowStockThreshold}
+                onChange={e => setLowStockThreshold(parseInt(e.target.value) || 0)}
+              />
+              <span className="text-xs font-medium text-cafe-ink/40">Unit / Satuan</span>
+            </div>
+          </div>
+        ) : null}
+
         {/* Unit Settings */}
         <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
           <div className="flex items-center justify-between mb-2">
@@ -2089,7 +2176,7 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
   );
 }
 
-function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOpnames: StockOpname[], inventory: InventoryItem[], units: Unit[], onUpdate: () => void }) {
+function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }: { stockOpnames: StockOpname[], inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole }) {
   const [isCreating, setIsCreating] = useState(false);
   const [isCounting, setIsCounting] = useState(false);
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
@@ -2479,7 +2566,7 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
                 <td className="p-6 text-sm text-cafe-ink/70">{item.description}</td>
                 <td className="p-6 text-right">
                   <div className="flex justify-end gap-3">
-                    {(item.status === 'Pending' || item.status === 'Menunggu Accept PIC') && (
+                    {userRole === 'Manager' && (item.status === 'Pending' || item.status === 'Menunggu Accept PIC') && (
                       <button 
                         onClick={() => handleUpdateStatus(item.id, 'Accept')}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -2488,13 +2575,15 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
                         <Save size={18} />
                       </button>
                     )}
-                    <button 
-                      onClick={() => handleDelete(item.id)}
-                      className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {userRole !== 'Admin' && (
+                      <button 
+                        onClick={() => handleDelete(item.id)}
+                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

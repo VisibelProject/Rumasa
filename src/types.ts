@@ -1,3 +1,5 @@
+export type UserRole = 'Manager' | 'Admin' | 'Inventory' | 'Finance';
+
 export interface InventoryItem {
   id: number;
   name: string;
