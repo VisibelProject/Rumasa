@@ -3,6 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import * as XLSX from "xlsx";
+import multer from "multer";
 
 dotenv.config();
 
@@ -49,6 +51,7 @@ const PORT = 3000;
 
 async function startServer() {
   app.use(express.json());
+  const upload = multer({ storage: multer.memoryStorage() });
 
   // Request Logging Middleware
   app.use((req, res, next) => {
@@ -689,6 +692,120 @@ async function startServer() {
     } catch (err: any) {
       console.error("Sale transaction failed:", err);
       res.status(500).json({ error: err.message || "Transaction failed" });
+    }
+  });
+
+  // Excel Routes for Sales
+  app.get("/api/transactions/sale/template", (req, res) => {
+    const template = [
+      {
+        Tanggal: new Date().toISOString().split('T')[0],
+        Keterangan: "Penjualan Harian",
+        "Total Penjualan (IDR)": 0,
+        "Jumlah Terjual": 1,
+        "Metode Pembayaran": "Kas",
+        "Menu ID": ""
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Penjualan");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader("Content-Disposition", "attachment; filename=template_penjualan.xlsx");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buf);
+  });
+
+  app.get("/api/transactions/sale/export", async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("journal")
+        .select("*")
+        .eq("category", "Income")
+        .order("date", { ascending: false });
+      
+      if (error) throw error;
+
+      const exportData = (data || []).map(entry => ({
+        Tanggal: entry.date,
+        Keterangan: entry.description,
+        "Total Penjualan (IDR)": entry.credit,
+        "Metode Pembayaran": entry.payment_method || "Kas"
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Data Penjualan");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      res.setHeader("Content-Disposition", "attachment; filename=data_penjualan.xlsx");
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(buf);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/transactions/sale/import", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const data: any[] = XLSX.utils.sheet_to_json(sheet);
+
+      const results = [];
+      for (const row of data) {
+        const date = row["Tanggal"];
+        const description = row["Keterangan"];
+        const amount = row["Total Penjualan (IDR)"];
+        const items_sold = row["Jumlah Terjual"] || 1;
+        const menu_id = row["Menu ID"];
+        const payment_method = row["Metode Pembayaran"] || "Kas";
+
+        if (!date || !amount) continue;
+
+        // Reuse the sale logic
+        // 1. Add Journal Entry
+        const { error: journalError } = await supabase.from("journal").insert([{ 
+          date, 
+          description, 
+          debit: 0, 
+          credit: amount, 
+          category: "Income",
+          payment_method: payment_method
+        }]);
+
+        if (journalError) throw journalError;
+
+        // 2. Deduct Inventory if menu_id provided
+        if (menu_id) {
+          const { data: ingredients, error: ingError } = await supabase
+            .from("menu_ingredients")
+            .select("*")
+            .eq("menu_id", menu_id);
+          
+          if (!ingError && ingredients) {
+            for (const ingredient of ingredients) {
+              const totalDeduction = ingredient.quantity * items_sold;
+              const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
+              if (inv) {
+                const newQty = (inv.quantity || 0) - totalDeduction;
+                await supabase.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
+              }
+            }
+          }
+        }
+        results.push(row);
+      }
+
+      res.json({ success: true, imported: results.length });
+    } catch (error: any) {
+      console.error("Import failed:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 

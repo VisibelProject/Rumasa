@@ -74,7 +74,7 @@ export interface StockOpname {
   id: number;
   reference_no: string;
   date: string;
-  type: 'Penambahan' | 'Pengurangan';
-  status: 'Pending' | 'Accept';
+  type: 'Penambahan' | 'Pengurangan' | 'Penyesuaian';
+  status: 'Pending' | 'Accept' | 'Menunggu Accept PIC';
   description: string;
 }

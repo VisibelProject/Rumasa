@@ -27,7 +27,10 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  List
+  List,
+  FileDown,
+  FileUp,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname } from './types';
@@ -372,7 +375,7 @@ export default function App() {
             )}
 
             {activeTab === 'Stock Opname' && (
-              <StockOpnameView stockOpnames={stockOpnames} onUpdate={fetchData} />
+              <StockOpnameView stockOpnames={stockOpnames} inventory={inventory} units={units} onUpdate={fetchData} />
             )}
 
             {activeTab === 'journal' && (
@@ -477,14 +480,7 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-end">
-        <button 
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
-        >
-          <Plus size={18} /> Tambah Item
-        </button>
-      </div>
+      {/* Removed Tambah Item button as per request */}
 
       {showAdd && (
         <motion.form 
@@ -610,27 +606,6 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
                 </td>
                 <td className="p-6 text-right">
                   <div className="flex justify-end gap-2">
-                    <button 
-                      onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
-                      className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
-                      title="Tambah Stok"
-                    >
-                      <Plus size={16} />
-                    </button>
-                    <button 
-                      onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
-                      className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
-                      title="Kurangi Stok"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    <button 
-                      onClick={() => setEditingItem(item)}
-                      className="p-2 rounded-lg border border-cafe-ink/10 hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
-                      title="Edit Item"
-                    >
-                      <Edit2 size={16} />
-                    </button>
                     <button 
                       onClick={() => handleDelete(item.id)}
                       className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
@@ -1351,6 +1326,8 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
     menu_id: '',
     payment_method: 'Kas'
   });
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1369,8 +1346,76 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
     }
   };
 
+  const handleDownloadTemplate = () => {
+    window.open('/api/transactions/sale/template', '_blank');
+  };
+
+  const handleExport = () => {
+    window.open('/api/transactions/sale/export', '_blank');
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/transactions/sale/import', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        alert(`Berhasil mengimpor ${result.imported} data penjualan!`);
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal mengimpor data: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat mengimpor data.');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
+      {/* Excel Tools */}
+      <div className="bg-white border border-cafe-ink/5 p-6 rounded-3xl shadow-sm flex flex-wrap gap-4 justify-center">
+        <button 
+          onClick={handleDownloadTemplate}
+          className="flex items-center gap-2 px-4 py-2 bg-cafe-cream text-cafe-espresso rounded-xl text-xs font-bold hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
+        >
+          <FileDown size={16} /> Template Excel
+        </button>
+        <button 
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+          className="flex items-center gap-2 px-4 py-2 bg-cafe-cream text-cafe-espresso rounded-xl text-xs font-bold hover:bg-cafe-espresso hover:text-cafe-paper transition-all disabled:opacity-50"
+        >
+          <FileUp size={16} /> {importing ? 'Mengimpor...' : 'Import Excel'}
+        </button>
+        <button 
+          onClick={handleExport}
+          className="flex items-center gap-2 px-4 py-2 bg-cafe-cream text-cafe-espresso rounded-xl text-xs font-bold hover:bg-cafe-espresso hover:text-cafe-paper transition-all"
+        >
+          <Download size={16} /> Ekspor Excel
+        </button>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          className="hidden" 
+          accept=".xlsx, .xls" 
+          onChange={handleImport}
+        />
+      </div>
+
       <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-10 rounded-3xl shadow-xl space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
@@ -1986,25 +2031,71 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
   );
 }
 
-function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname[], onUpdate: () => void }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [newOpname, setNewOpname] = useState({ reference_no: '', date: new Date().toISOString().split('T')[0], type: 'Penambahan' as const, description: '' });
+function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOpnames: StockOpname[], inventory: InventoryItem[], units: Unit[], onUpdate: () => void }) {
+  const [isCreating, setIsCreating] = useState(false);
+  const [isCounting, setIsCounting] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [countingData, setCountingData] = useState<Record<number, number>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notes, setNotes] = useState('');
+  const [referenceNo, setReferenceNo] = useState('');
+  const [countingDate, setCountingDate] = useState('');
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const filteredInventory = inventory.filter(item => 
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const toggleItem = (id: number) => {
+    setSelectedItems(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const startCounting = () => {
+    if (selectedItems.length === 0) {
+      alert('Pilih minimal satu produk untuk dilakukan stock opname.');
+      return;
+    }
+    const refNo = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+    const now = new Date().toLocaleString('sv-SE'); // YYYY-MM-DD HH:mm:ss
+    
+    setReferenceNo(refNo);
+    setCountingDate(now);
+    
+    const initialData: Record<number, number> = {};
+    selectedItems.forEach(id => {
+      initialData[id] = 0;
+    });
+    setCountingData(initialData);
+    setIsCounting(true);
+    setIsCreating(false);
+  };
+
+  const handleFinishCounting = async () => {
+    const payload = {
+      reference_no: referenceNo,
+      date: countingDate.split(' ')[0],
+      type: 'Penyesuaian',
+      status: 'Menunggu Accept PIC',
+      description: notes || `Stock Opname untuk ${selectedItems.length} item`
+    };
+
     try {
       const res = await fetch('/api/stock-opname', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newOpname, status: 'Pending' })
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
-        setShowAdd(false);
-        setNewOpname({ reference_no: '', date: new Date().toISOString().split('T')[0], type: 'Penambahan', description: '' });
+        setIsCounting(false);
+        setIsCreating(false);
+        setSelectedItems([]);
+        setCountingData({});
+        setNotes('');
         onUpdate();
       }
     } catch (error) {
-      console.error('Error adding stock opname:', error);
+      console.error('Error saving stock opname:', error);
     }
   };
 
@@ -2031,6 +2122,219 @@ function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname
     }
   };
 
+  if (isCounting) {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="space-y-6"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsCounting(false)}
+              className="text-cafe-espresso hover:opacity-70 transition-opacity"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <h3 className="text-2xl font-bold text-cafe-espresso">Proses perhitungan</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => window.print()}
+              className="px-6 py-2 border border-emerald-500 text-emerald-600 rounded-lg font-medium hover:bg-emerald-50 transition-colors"
+            >
+              Unduh (PDF)
+            </button>
+            <button 
+              onClick={handleFinishCounting}
+              className="px-6 py-2 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors"
+            >
+              Selesai
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-8 mb-8">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">REFERENCE</p>
+              <p className="font-mono text-sm">{referenceNo}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">TANGGAL</p>
+              <p className="font-mono text-sm">{countingDate}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">TIPE</p>
+              <p className="text-sm">Product</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">NOTES</p>
+              <p className="text-sm opacity-60">{notes || '-'}</p>
+            </div>
+            <div className="md:col-span-1">
+              <div className="bg-cafe-cream/10 p-4 rounded-xl border border-cafe-ink/5 space-y-3">
+                <input 
+                  type="text" 
+                  placeholder="Letakkan kursor untuk Scan"
+                  className="w-full bg-white border border-cafe-ink/10 rounded-lg px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-cafe-cream/5 border-b border-cafe-ink/5">
+                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
+                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Stock Sistem</th>
+                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-center">Stok Gudang</th>
+                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Ket</th>
+                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Selisih</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-cafe-ink/5">
+                {selectedItems.map(id => {
+                  const item = inventory.find(i => i.id === id);
+                  if (!item) return null;
+                  const systemStock = item.quantity;
+                  const physicalStock = countingData[id] || 0;
+                  const diff = physicalStock - systemStock;
+                  
+                  let ket = 'Sesuai';
+                  let ketColor = 'text-cafe-ink';
+                  if (diff > 0) {
+                    ket = `Lebih ${diff}`;
+                    ketColor = 'text-emerald-600';
+                  } else if (diff < 0) {
+                    ket = `Kurang ${Math.abs(diff)}`;
+                    ketColor = 'text-rose-600';
+                  }
+
+                  return (
+                    <tr key={id} className="hover:bg-cafe-cream/5 transition-colors">
+                      <td className="p-4 text-sm font-medium">{item.name}</td>
+                      <td className="p-4 text-sm font-mono">{systemStock}</td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-3">
+                          <button 
+                            onClick={() => setCountingData(prev => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) - 1) }))}
+                            className="p-1 rounded border border-cafe-ink/10 hover:bg-cafe-cream/10"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <input 
+                            type="number"
+                            className="w-16 text-center border border-cafe-ink/10 rounded py-1 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                            value={physicalStock}
+                            onChange={(e) => setCountingData(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 0 }))}
+                          />
+                          <button 
+                            onClick={() => setCountingData(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }))}
+                            className="p-1 rounded border border-cafe-ink/10 hover:bg-cafe-cream/10"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </td>
+                      <td className={`p-4 text-sm font-bold ${ketColor}`}>{ket}</td>
+                      <td className="p-4 text-sm font-mono"></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (isCreating) {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="space-y-6"
+      >
+        <div className="flex items-center justify-between">
+          <button 
+            onClick={() => setIsCreating(false)}
+            className="flex items-center gap-2 text-cafe-espresso hover:opacity-70 transition-opacity font-medium"
+          >
+            <ChevronLeft size={20} /> Kembali
+          </button>
+          <h3 className="text-2xl font-serif italic text-cafe-espresso">Buat Stok Opname</h3>
+          <button 
+            onClick={startCounting}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all"
+          >
+            Mulai Hitung
+          </button>
+        </div>
+
+        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Notes / Keterangan</label>
+              <textarea 
+                className="w-full border border-cafe-ink/10 rounded-xl p-4 text-sm focus:border-cafe-espresso focus:outline-none transition-colors min-h-[100px]"
+                placeholder="Tambahkan catatan di sini..."
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Cari Produk</label>
+              <div className="relative">
+                <input 
+                  type="text"
+                  className="w-full border border-cafe-ink/10 rounded-xl pl-10 pr-4 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  placeholder="Cari berdasarkan nama SKU..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                <List className="absolute left-3 top-3.5 opacity-30" size={18} />
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-cafe-cream/10 border-b border-cafe-ink/5">
+                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
+                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Qty Stock</th>
+                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-center">Checklist</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-cafe-ink/5">
+                {filteredInventory.map(item => (
+                  <tr key={item.id} className={`hover:bg-cafe-cream/5 transition-colors ${selectedItems.includes(item.id) ? 'bg-emerald-50/30' : ''}`}>
+                    <td className="p-4 text-sm font-medium">{item.name}</td>
+                    <td className="p-4 text-xs font-mono opacity-60">{item.unit}</td>
+                    <td className="p-4 text-sm text-right font-mono font-bold">{item.quantity}</td>
+                    <td className="p-4 text-center">
+                      <input 
+                        type="checkbox"
+                        className="w-5 h-5 rounded border-cafe-ink/20 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                        checked={selectedItems.includes(item.id)}
+                        onChange={() => toggleItem(item.id)}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -2043,85 +2347,12 @@ function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname
           <p className="text-sm opacity-50 mt-1">Kelola penyesuaian stok manual</p>
         </div>
         <button 
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl hover:shadow-lg transition-all font-medium"
+          onClick={() => setIsCreating(true)}
+          className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2"
         >
-          <Plus size={18} />
-          Tambah Opname
+          <Plus size={18} /> Mulai
         </button>
       </div>
-
-      <AnimatePresence>
-        {showAdd && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm overflow-hidden"
-          >
-            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">No Reference</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newOpname.reference_no}
-                  onChange={e => setNewOpname({...newOpname, reference_no: e.target.value})}
-                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
-                  placeholder="OPN-001"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Tanggal</label>
-                <input 
-                  type="date" 
-                  required
-                  value={newOpname.date}
-                  onChange={e => setNewOpname({...newOpname, date: e.target.value})}
-                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Type Opname</label>
-                <select 
-                  value={newOpname.type}
-                  onChange={e => setNewOpname({...newOpname, type: e.target.value as any})}
-                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
-                >
-                  <option value="Penambahan">Penambahan</option>
-                  <option value="Pengurangan">Pengurangan</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Keterangan</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newOpname.description}
-                  onChange={e => setNewOpname({...newOpname, description: e.target.value})}
-                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
-                  placeholder="Contoh: Selisih stok fisik"
-                />
-              </div>
-              <div className="lg:col-span-4 flex justify-end gap-4 mt-2">
-                <button 
-                  type="button"
-                  onClick={() => setShowAdd(false)}
-                  className="px-6 py-3 text-sm font-medium text-cafe-ink/60 hover:text-cafe-ink transition-colors"
-                >
-                  Batal
-                </button>
-                <button 
-                  type="submit"
-                  className="bg-cafe-espresso text-cafe-paper px-8 py-3 rounded-xl hover:shadow-lg transition-all font-medium"
-                >
-                  Simpan Opname
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
         <table className="w-full text-left border-collapse">
@@ -2149,7 +2380,9 @@ function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname
                 </td>
                 <td className="p-6">
                   <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
-                    item.status === 'Accept' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                    item.status === 'Accept' ? 'bg-blue-50 text-blue-700' : 
+                    item.status === 'Menunggu Accept PIC' ? 'bg-amber-50 text-amber-700' :
+                    'bg-gray-50 text-gray-700'
                   }`}>
                     {item.status}
                   </span>
@@ -2157,7 +2390,7 @@ function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname
                 <td className="p-6 text-sm text-cafe-ink/70">{item.description}</td>
                 <td className="p-6 text-right">
                   <div className="flex justify-end gap-3">
-                    {item.status === 'Pending' && (
+                    {(item.status === 'Pending' || item.status === 'Menunggu Accept PIC') && (
                       <button 
                         onClick={() => handleUpdateStatus(item.id, 'Accept')}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
