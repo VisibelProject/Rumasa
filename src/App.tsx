@@ -480,7 +480,15 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
 
   return (
     <div className="space-y-8">
-      {/* Removed Tambah Item button as per request */}
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Manajemen Inventaris</h3>
+        <button 
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+        >
+          <Plus size={18} /> Tambah Item
+        </button>
+      </div>
 
       {showAdd && (
         <motion.form 
@@ -594,29 +602,56 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {inventory.map(item => (
-              <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
-                <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
-                <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
-                <td className="p-6 text-sm text-right font-mono">{formatCurrency(item.cost_per_unit || 0)}</td>
-                <td className="p-6 text-sm text-right font-mono">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.quantity < 10 ? 'bg-rose-50 text-rose-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
-                    {item.quantity}
-                  </span>
-                </td>
-                <td className="p-6 text-right">
-                  <div className="flex justify-end gap-2">
-                    <button 
-                      onClick={() => handleDelete(item.id)}
-                      className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
-                      title="Hapus"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </td>
+            {inventory.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris. Klik "Tambah Item" untuk memulai.</td>
               </tr>
-            ))}
+            ) : (
+              inventory.map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                  <td className="p-6 text-sm text-right font-mono">{formatCurrency(item.cost_per_unit || 0)}</td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.quantity < 10 ? 'bg-rose-50 text-rose-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
+                      {item.quantity}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
+                        className="p-2 rounded-lg border border-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
+                        title="Tambah Stok"
+                      >
+                        <Plus size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
+                        className="p-2 rounded-lg border border-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"
+                        title="Kurang Stok"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <button 
+                        onClick={() => setEditingItem(item)}
+                        className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                        title="Edit"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(item.id)}
+                        className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
+                        title="Hapus"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -1875,9 +1910,23 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
       <div className="max-w-2xl mx-auto">
         {/* Unit Settings */}
         <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Package className="text-cafe-espresso" size={20} />
-            <h4 className="text-lg font-bold text-cafe-espresso">Manajemen Satuan</h4>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <Package className="text-cafe-espresso" size={20} />
+              <h4 className="text-lg font-bold text-cafe-espresso">Manajemen Satuan</h4>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold bg-cafe-espresso/10 text-cafe-espresso px-2 py-1 rounded-full uppercase tracking-wider">
+                {units.length} Satuan
+              </span>
+              <button 
+                onClick={onUpdateUnits}
+                className="p-2 hover:bg-cafe-espresso/5 rounded-full transition-all text-cafe-espresso"
+                title="Sinkronisasi Data"
+              >
+                <RefreshCw size={16} />
+              </button>
+            </div>
           </div>
           <p className="text-xs text-cafe-ink/60 leading-relaxed">
             Tambah atau hapus jenis satuan yang digunakan dalam inventaris (misal: BOX, LITER, DLL).
@@ -1904,16 +1953,25 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
 
           <div className="pt-6 space-y-3">
             <h5 className="text-[10px] uppercase tracking-widest opacity-50 font-bold border-b border-cafe-ink/5 pb-2">Daftar Satuan Aktif</h5>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2">
               {units.length === 0 ? (
-                <p className="col-span-2 text-center py-8 text-xs opacity-30 italic">Belum ada satuan yang terdaftar.</p>
+                <div className="col-span-2 text-center py-10 bg-cafe-cream/5 rounded-2xl border border-dashed border-cafe-ink/10">
+                  <p className="text-xs opacity-30 italic">Belum ada satuan yang terdaftar.</p>
+                  <button 
+                    onClick={onUpdateUnits}
+                    className="mt-2 text-[10px] text-cafe-espresso font-bold hover:underline"
+                  >
+                    Klik untuk Refresh
+                  </button>
+                </div>
               ) : (
                 units.map(unit => (
-                  <div key={unit.id} className="flex justify-between items-center p-3 bg-cafe-cream/10 rounded-xl border border-cafe-ink/5">
+                  <div key={unit.id} className="flex justify-between items-center p-3 bg-cafe-cream/10 rounded-xl border border-cafe-ink/5 hover:border-cafe-espresso/20 transition-all">
                     <span className="text-xs font-bold text-cafe-espresso">{unit.name}</span>
                     <button 
                       onClick={() => handleDeleteUnit(unit.id)}
-                      className="text-rose-500 hover:text-rose-700 transition-colors"
+                      className="text-rose-400 hover:text-rose-600 transition-colors p-1"
+                      title="Hapus Satuan"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -2040,6 +2098,7 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
   const [notes, setNotes] = useState('');
   const [referenceNo, setReferenceNo] = useState('');
   const [countingDate, setCountingDate] = useState('');
+  const [selectedOpname, setSelectedOpname] = useState<StockOpname | null>(null);
 
   const filteredInventory = inventory.filter(item => 
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -2072,12 +2131,29 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
   };
 
   const handleFinishCounting = async () => {
+    if (Object.keys(countingData).length === 0) {
+      alert('Data perhitungan kosong.');
+      return;
+    }
+
+    const opnameItems = selectedItems.map(id => {
+      const item = inventory.find(inv => inv.id === id);
+      return {
+        inventory_id: id,
+        inventory_name: item?.name || 'Unknown',
+        system_quantity: item?.quantity || 0,
+        actual_quantity: countingData[id] || 0,
+        difference: (countingData[id] || 0) - (item?.quantity || 0)
+      };
+    });
+
     const payload = {
       reference_no: referenceNo,
       date: countingDate.split(' ')[0],
       type: 'Penyesuaian',
       status: 'Menunggu Accept PIC',
-      description: notes || `Stock Opname untuk ${selectedItems.length} item`
+      description: notes || `Stock Opname untuk ${selectedItems.length} item`,
+      items: opnameItems
     };
 
     try {
@@ -2086,16 +2162,22 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      
       if (res.ok) {
+        // Reset states and go back to history
         setIsCounting(false);
         setIsCreating(false);
         setSelectedItems([]);
         setCountingData({});
         setNotes('');
         onUpdate();
+      } else {
+        const err = await res.json();
+        alert('Gagal menyimpan stock opname: ' + (err.error || 'Terjadi kesalahan server'));
       }
     } catch (error) {
       console.error('Error saving stock opname:', error);
+      alert('Terjadi kesalahan koneksi saat menyimpan data.');
     }
   };
 
@@ -2116,9 +2198,15 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
     if (!confirm('Hapus riwayat opname ini?')) return;
     try {
       const res = await fetch(`/api/stock-opname/${id}`, { method: 'DELETE' });
-      if (res.ok) onUpdate();
+      if (res.ok) {
+        onUpdate();
+      } else {
+        const err = await res.json();
+        alert('Gagal menghapus riwayat opname: ' + (err.error || 'Terjadi kesalahan server'));
+      }
     } catch (error) {
       console.error('Error deleting stock opname:', error);
+      alert('Terjadi kesalahan koneksi saat menghapus data.');
     }
   };
 
@@ -2141,14 +2229,8 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
           </div>
           <div className="flex items-center gap-3">
             <button 
-              onClick={() => window.print()}
-              className="px-6 py-2 border border-emerald-500 text-emerald-600 rounded-lg font-medium hover:bg-emerald-50 transition-colors"
-            >
-              Unduh (PDF)
-            </button>
-            <button 
               onClick={handleFinishCounting}
-              className="px-6 py-2 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors"
+              className="px-8 py-2.5 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
             >
               Selesai
             </button>
@@ -2369,7 +2451,14 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
           <tbody className="divide-y divide-cafe-ink/5">
             {stockOpnames.map(item => (
               <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
-                <td className="p-6 text-sm font-mono font-bold text-cafe-espresso">{item.reference_no}</td>
+                <td className="p-6 text-sm font-mono font-bold text-cafe-espresso">
+                  <button 
+                    onClick={() => setSelectedOpname(item)}
+                    className="hover:underline text-left"
+                  >
+                    {item.reference_no}
+                  </button>
+                </td>
                 <td className="p-6 text-sm text-cafe-ink">{item.date}</td>
                 <td className="p-6">
                   <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
@@ -2418,6 +2507,88 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate }: { stockOp
           </tbody>
         </table>
       </div>
+
+      <AnimatePresence>
+        {selectedOpname && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-cafe-espresso/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-cafe-ink/5 flex justify-between items-center bg-cafe-cream/10">
+                <div>
+                  <h3 className="text-2xl font-serif italic text-cafe-espresso">Detail Stock Opname</h3>
+                  <p className="text-sm opacity-50 mt-1">Ref: {selectedOpname.reference_no} | {selectedOpname.date}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedOpname(null)}
+                  className="p-2 hover:bg-cafe-ink/5 rounded-full transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-8 max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-8 mb-8">
+                  <div className="bg-cafe-cream/5 p-4 rounded-xl border border-cafe-ink/5">
+                    <p className="text-[10px] uppercase tracking-widest opacity-50 font-bold mb-1">Status</p>
+                    <p className="text-sm font-bold text-cafe-espresso">{selectedOpname.status}</p>
+                  </div>
+                  <div className="bg-cafe-cream/5 p-4 rounded-xl border border-cafe-ink/5">
+                    <p className="text-[10px] uppercase tracking-widest opacity-50 font-bold mb-1">Keterangan</p>
+                    <p className="text-sm text-cafe-ink">{selectedOpname.description}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
+                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Produk</th>
+                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Sistem</th>
+                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aktual</th>
+                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Selisih</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-cafe-ink/5">
+                      {selectedOpname.items?.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-cafe-cream/10 transition-colors">
+                          <td className="p-4 text-sm font-bold text-cafe-espresso">{item.inventory_name}</td>
+                          <td className="p-4 text-sm text-right font-mono text-cafe-ink/60">{item.system_quantity}</td>
+                          <td className="p-4 text-sm text-right font-mono font-bold text-cafe-espresso">{item.actual_quantity}</td>
+                          <td className={`p-4 text-sm text-right font-mono font-bold ${
+                            item.difference > 0 ? 'text-emerald-600' : 
+                            item.difference < 0 ? 'text-rose-600' : 
+                            'text-cafe-ink/40'
+                          }`}>
+                            {item.difference > 0 ? `+${item.difference}` : item.difference}
+                          </td>
+                        </tr>
+                      ))}
+                      {(!selectedOpname.items || selectedOpname.items.length === 0) && (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-sm opacity-40 italic font-serif">Data item tidak tersedia untuk record lama.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="p-8 bg-cafe-cream/5 border-t border-cafe-ink/5 flex justify-end">
+                <button 
+                  onClick={() => setSelectedOpname(null)}
+                  className="px-8 py-3 bg-cafe-espresso text-cafe-paper rounded-xl font-bold hover:opacity-90 transition-opacity"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

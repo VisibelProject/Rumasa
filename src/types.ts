@@ -70,6 +70,14 @@ export interface Purchase {
   description: string;
 }
 
+export interface StockOpnameItem {
+  inventory_id: number;
+  inventory_name: string;
+  system_quantity: number;
+  actual_quantity: number;
+  difference: number;
+}
+
 export interface StockOpname {
   id: number;
   reference_no: string;
@@ -77,4 +85,5 @@ export interface StockOpname {
   type: 'Penambahan' | 'Pengurangan' | 'Penyesuaian';
   status: 'Pending' | 'Accept' | 'Menunggu Accept PIC';
   description: string;
+  items?: StockOpnameItem[];
 }

@@ -11,6 +11,7 @@ dotenv.config();
 console.log("Environment check:");
 console.log("- SUPABASE_URL:", process.env.SUPABASE_URL ? "Defined" : "MISSING");
 console.log("- SUPABASE_ANON_KEY:", process.env.SUPABASE_ANON_KEY ? "Defined" : "MISSING");
+console.log("- SUPABASE_SERVICE_ROLE_KEY:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "Defined" : "MISSING");
 console.log("- NODE_ENV:", process.env.NODE_ENV);
 console.log("- VERCEL:", process.env.VERCEL);
 
@@ -19,10 +20,19 @@ const __dirname = path.dirname(__filename);
 
 // Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+console.log("Supabase Configuration:");
+console.log("- URL:", supabaseUrl ? "Present" : "MISSING");
+console.log("- Service Role Key:", supabaseServiceKey ? "Present" : "MISSING");
+console.log("- Anon Key:", supabaseAnonKey ? "Present" : "MISSING");
+
+const supabaseKey = supabaseServiceKey || supabaseAnonKey || "";
+console.log("- Using Key Type:", supabaseServiceKey ? "SERVICE_ROLE (Bypasses RLS)" : (supabaseAnonKey ? "ANON (Subject to RLS)" : "NONE"));
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error("CRITICAL: SUPABASE_URL or SUPABASE_ANON_KEY is missing from environment variables.");
+  console.error("CRITICAL: SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -138,10 +148,10 @@ async function startServer() {
   });
 
   app.post("/api/stock-opname", async (req, res) => {
-    const { reference_no, date, type, status, description } = req.body;
+    const { reference_no, date, type, status, description, items } = req.body;
     const { data, error } = await supabase
       .from("stock_opname")
-      .insert([{ reference_no, date, type, status: status || 'Pending', description }])
+      .insert([{ reference_no, date, type, status: status || 'Pending', description, items }])
       .select();
     
     if (error) return res.status(500).json({ error: error.message });
@@ -161,13 +171,33 @@ async function startServer() {
   });
 
   app.delete("/api/stock-opname/:id", async (req, res) => {
-    const { error } = await supabase
-      .from("stock_opname")
-      .delete()
-      .eq("id", req.params.id);
+    const { id } = req.params;
+    console.log(`Attempting to delete stock opname with ID: ${id}`);
     
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ success: true });
+    try {
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const anonKey = process.env.SUPABASE_ANON_KEY;
+      const url = process.env.SUPABASE_URL || "";
+      const key = serviceKey || anonKey || "";
+      
+      const client = createClient(url, key);
+
+      const { error } = await client
+        .from("stock_opname")
+        .delete()
+        .eq("id", id);
+      
+      if (error) {
+        console.error(`Supabase error deleting stock opname ${id}:`, error);
+        return res.status(500).json({ error: error.message });
+      }
+      
+      console.log(`Successfully deleted stock opname: ${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error(`Unexpected error deleting stock opname ${id}:`, err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get("/api/inventory", async (req, res) => {
@@ -479,20 +509,38 @@ async function startServer() {
   });
 
   app.get("/api/units", async (req, res) => {
-    const { data, error } = await supabase
-      .from("units")
-      .select("*")
-      .order("name", { ascending: true });
-    
-    if (error) {
-      console.error("Supabase error in GET /api/units:", error);
-      return res.status(500).json({ error: error.message });
+    console.log("Fetching units...");
+    try {
+      // Use a fresh client to ensure we use the most up-to-date keys from process.env
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const anonKey = process.env.SUPABASE_ANON_KEY;
+      const url = process.env.SUPABASE_URL || "";
+      const key = serviceKey || anonKey || "";
+      
+      const client = createClient(url, key);
+      
+      const { data, error } = await client
+        .from("units")
+        .select("*")
+        .order("name", { ascending: true });
+      
+      if (error) {
+        console.error("Supabase error in GET /api/units:", error);
+        return res.status(500).json({ error: error.message });
+      }
+      
+      console.log(`Fetched ${data?.length || 0} units. (Using ${serviceKey ? 'Service Role' : 'Anon'} Key)`);
+      res.json(data || []);
+    } catch (err: any) {
+      console.error("Unexpected error in GET /api/units:", err);
+      res.status(500).json({ error: err.message });
     }
-    res.json(data);
   });
 
   app.post("/api/units", async (req, res) => {
     const { name } = req.body;
+    console.log(`Attempting to add unit: ${name}`);
+    
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: "Nama satuan tidak valid" });
     }
@@ -502,21 +550,47 @@ async function startServer() {
       return res.status(400).json({ error: "Nama satuan tidak boleh kosong" });
     }
 
-    const { data, error } = await supabase
-      .from("units")
-      .insert([{ name: trimmedName }])
-      .select();
-    
-    if (error) {
-      if (error.code === "23505") return res.status(400).json({ error: "Unit already exists" });
-      return res.status(500).json({ error: error.message });
+    try {
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const anonKey = process.env.SUPABASE_ANON_KEY;
+      const url = process.env.SUPABASE_URL || "";
+      const key = serviceKey || anonKey || "";
+      
+      const client = createClient(url, key);
+
+      // Check if exists first to provide better error
+      const { data: existing } = await client
+        .from("units")
+        .select("id, name")
+        .eq("name", trimmedName)
+        .maybeSingle();
+      
+      if (existing) {
+        console.log(`Unit ${trimmedName} already exists (ID: ${existing.id})`);
+        return res.status(400).json({ error: `Unit "${trimmedName}" already exists in database.` });
+      }
+
+      const { data, error } = await client
+        .from("units")
+        .insert([{ name: trimmedName }])
+        .select();
+      
+      if (error) {
+        console.error(`Error adding unit ${trimmedName}:`, error);
+        if (error.code === "23505") return res.status(400).json({ error: `Unit "${trimmedName}" already exists (Unique constraint).` });
+        return res.status(500).json({ error: error.message });
+      }
+      
+      console.log(`Successfully added unit: ${trimmedName}`);
+      if (!data || data.length === 0) {
+        return res.status(500).json({ error: "Gagal menyimpan satuan" });
+      }
+      
+      res.json({ id: data[0].id });
+    } catch (err: any) {
+      console.error("Unexpected error in POST /api/units:", err);
+      res.status(500).json({ error: err.message });
     }
-    
-    if (!data || data.length === 0) {
-      return res.status(500).json({ error: "Gagal menyimpan satuan" });
-    }
-    
-    res.json({ id: data[0].id });
   });
 
   app.delete("/api/units/:id", async (req, res) => {
