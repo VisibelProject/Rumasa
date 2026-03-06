@@ -23,10 +23,14 @@ import {
   Settings,
   Coffee,
   Save,
-  X
+  X,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  List
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname } from './types';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -37,16 +41,21 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA'>('dashboard');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [COA, setCOA] = useState<COA[]>([]);
+  const [stockOpnames, setStockOpnames] = useState<StockOpname[]>([]);
   const [profitLoss, setProfitLoss] = useState<ProfitLoss>({ income: 0, expenses: 0 });
   const [units, setUnits] = useState<Unit[]>([]);
   const [menus, setMenus] = useState<Menu[]>([]);
   const [egressStatus, setEgressStatus] = useState<{ usage: number, limit: number, percentage: number, warning: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isJournalOpen, setIsJournalOpen] = useState(false);
+  const [isStockOpen, setIsStockOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -55,7 +64,7 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes] = await Promise.all([
+      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, stockOpnameRes] = await Promise.all([
         fetch('/api/inventory'),
         fetch('/api/journal'),
         fetch('/api/assets'),
@@ -63,7 +72,9 @@ export default function App() {
         fetch('/api/units'),
         fetch('/api/menus'),
         fetch('/api/egress-status'),
-        fetch('/api/purchases')
+        fetch('/api/purchases'),
+        fetch('/api/COA'),
+        fetch('/api/stock-opname')
       ]);
       
       const invData = await invRes.json();
@@ -74,11 +85,15 @@ export default function App() {
       const menusData = await menusRes.json();
       const egressData = await egressRes.json();
       const purchasesData = await purchasesRes.json();
+      const COAData = await COARes.json();
+      const stockOpnameData = await stockOpnameRes.json();
 
       setInventory(Array.isArray(invData) ? invData : []);
       setJournal(Array.isArray(journalData) ? journalData : []);
       setPurchases(Array.isArray(purchasesData) ? purchasesData : []);
       setAssets(Array.isArray(assetData) ? assetData : []);
+      setCOA(Array.isArray(COAData) ? COAData : []);
+      setStockOpnames(Array.isArray(stockOpnameData) ? stockOpnameData : []);
       setProfitLoss(plData && !plData.error ? plData : { income: 0, expenses: 0 });
       setUnits(Array.isArray(unitsData) ? unitsData : []);
       setMenus(Array.isArray(menusData) ? menusData : []);
@@ -117,49 +132,130 @@ export default function App() {
   return (
     <div className="min-h-screen bg-cafe-paper text-cafe-ink font-sans flex">
       {/* Sidebar */}
-      <aside className="w-72 border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/30">
-        <div className="pt-8 pb-2 px-8 border-b border-cafe-ink/10">
+      <aside className={`${isMinimized ? 'w-20' : 'w-72'} border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/30 transition-all duration-300 relative`}>
+        <button 
+          onClick={() => setIsMinimized(!isMinimized)}
+          className="absolute -right-3 top-10 bg-cafe-espresso text-cafe-paper rounded-full p-1 shadow-lg z-20 hover:scale-110 transition-transform"
+        >
+          {isMinimized ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+
+        <div className={`pt-8 pb-2 ${isMinimized ? 'px-2' : 'px-8'} border-b border-cafe-ink/10 transition-all`}>
           <div className="flex flex-col items-center text-center">
             <img 
               src="https://lh3.googleusercontent.com/d/1bYm_VD5lfX4FT3NcK-1ijtR_P_eShjwM" 
               alt="RestoManager Logo" 
-              className="w-36 h-36 mb-0 object-contain"
+              className={`${isMinimized ? 'w-12 h-12' : 'w-36 h-36'} mb-0 object-contain transition-all`}
               referrerPolicy="no-referrer"
             />
           </div>
         </div>
         
-        <nav className="flex-1 px-6 py-4 space-y-3">
+        <nav className={`flex-1 ${isMinimized ? 'px-2' : 'px-6'} py-4 space-y-3 overflow-y-auto transition-all`}>
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
             { id: 'purchase', icon: ShoppingCart, label: 'Pembelian' },
             { id: 'sale', icon: Banknote, label: 'Penjualan' },
             { id: 'menu', icon: Coffee, label: 'Menu' },
-            { id: 'inventory', icon: Package, label: 'Stock Opname' },
-            { id: 'journal', icon: BookOpen, label: 'Jurnal Umum' },
-            { id: 'reports', icon: BarChart3, label: 'Laba Rugi' },
+            { 
+              id: 'stock-group', 
+              icon: Package, 
+              label: 'Stock',
+              isGroup: true,
+              subItems: [
+                { id: 'Stock Sistem', icon: Package, label: 'Stock Sistem' },
+                { id: 'Stock Opname', icon: RefreshCw, label: 'Stock Opname' },
+              ]
+            },
+            { 
+              id: 'journal-group', 
+              icon: BookOpen, 
+              label: 'Report',
+              isGroup: true,
+              subItems: [
+                { id: 'journal', icon: BookOpen, label: 'Jurnal Umum' },
+                { id: 'COA', icon: List, label: 'Chart of Accounts' },
+                { id: 'worksheet', icon: Calculator, label: 'Worksheet' },
+                { id: 'reports', icon: BarChart3, label: 'Laba Rugi' },
+              ]
+            },
             { id: 'assets', icon: HardDrive, label: 'Manajemen Aset' },
             { id: 'settings', icon: Settings, label: 'Settings' },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id as any)}
-              className={`w-full flex items-center gap-4 px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
-                activeTab === item.id 
-                  ? 'bg-cafe-espresso text-cafe-paper shadow-lg shadow-cafe-espresso/20' 
-                  : 'text-cafe-ink/60 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
-              }`}
-            >
-              <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-              {item.label}
-            </button>
-          ))}
+          ].map((item) => {
+            if (item.isGroup) {
+              const isActive = item.subItems?.some(sub => sub.id === activeTab);
+              const isOpen = item.id === 'journal-group' ? isJournalOpen : isStockOpen;
+              const setIsOpen = item.id === 'journal-group' ? setIsJournalOpen : setIsStockOpen;
+
+              return (
+                <div key={item.id} className="space-y-1">
+                  <button
+                    onClick={() => !isMinimized && setIsOpen(!isOpen)}
+                    className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'justify-between'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
+                      isActive || isOpen
+                        ? 'bg-cafe-espresso/5 text-cafe-espresso' 
+                        : 'text-cafe-ink/60 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
+                    }`}
+                    title={isMinimized ? item.label : ''}
+                  >
+                    <div className="flex items-center gap-4">
+                      <item.icon size={18} strokeWidth={isActive ? 2.5 : 2} />
+                      {!isMinimized && item.label}
+                    </div>
+                    {!isMinimized && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+                  </button>
+                  
+                  <AnimatePresence>
+                    {(!isMinimized && (isOpen || isActive)) && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden pl-4 space-y-1"
+                      >
+                        {item.subItems?.map(sub => (
+                          <button
+                            key={sub.id}
+                            onClick={() => setActiveTab(sub.id as any)}
+                            className={`w-full flex items-center gap-4 px-5 py-2.5 text-xs font-medium transition-all duration-300 rounded-lg ${
+                              activeTab === sub.id 
+                                ? 'bg-cafe-espresso text-cafe-paper shadow-md' 
+                                : 'text-cafe-ink/50 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
+                            }`}
+                          >
+                            <sub.icon size={14} />
+                            {sub.label}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id as any)}
+                className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'gap-4'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
+                  activeTab === item.id 
+                    ? 'bg-cafe-espresso text-cafe-paper shadow-lg shadow-cafe-espresso/20' 
+                    : 'text-cafe-ink/60 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
+                }`}
+                title={isMinimized ? item.label : ''}
+              >
+                <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+                {!isMinimized && item.label}
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="p-8 border-t border-cafe-ink/10">
+        <div className={`p-8 border-t border-cafe-ink/10 ${isMinimized ? 'flex justify-center' : ''}`}>
           <div className="flex items-center gap-3 opacity-40">
             <div className="w-2 h-2 rounded-full bg-cafe-latte animate-pulse"></div>
-            <span className="text-[10px] uppercase tracking-widest font-semibold">System Active</span>
+            {!isMinimized && <span className="text-[10px] uppercase tracking-widest font-semibold">System Active</span>}
           </div>
         </div>
       </aside>
@@ -271,12 +367,24 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === 'inventory' && (
+            {activeTab === 'Stock Sistem' && (
               <InventoryView inventory={inventory} units={units} onUpdate={fetchData} />
             )}
 
+            {activeTab === 'Stock Opname' && (
+              <StockOpnameView stockOpnames={stockOpnames} onUpdate={fetchData} />
+            )}
+
             {activeTab === 'journal' && (
-              <JournalView journal={journal} onUpdate={fetchData} />
+              <JournalView journal={journal} COA={COA} onUpdate={fetchData} />
+            )}
+
+            {activeTab === 'COA' && (
+              <COAView COA={COA} onUpdate={fetchData} />
+            )}
+
+            {activeTab === 'worksheet' && (
+              <WorksheetView journal={journal} />
             )}
 
             {activeTab === 'reports' && (
@@ -541,7 +649,7 @@ function InventoryView({ inventory, units, onUpdate }: { inventory: InventoryIte
   );
 }
 
-function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate: () => void }) {
+function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -549,18 +657,34 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
     account: '',
     debit: 0,
     credit: 0,
-    category: 'Expense' as any
+    category: 'Expense' as any,
+    payment_method: 'Kas' as any
   });
+
+  const handleAccountChange = (accountName: string) => {
+    const selectedCOA = COA.find(c => c.name === accountName);
+    setNewEntry({
+      ...newEntry,
+      account: accountName,
+      category: selectedCOA ? selectedCOA.category : newEntry.category
+    });
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/journal', {
+    const res = await fetch('/api/journal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newEntry)
     });
-    setShowAdd(false);
-    onUpdate();
+    
+    if (res.ok) {
+      setShowAdd(false);
+      onUpdate();
+    } else {
+      const error = await res.json();
+      alert('Gagal menambah entri: ' + (error.error || 'Unknown error'));
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -607,6 +731,20 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
             />
           </div>
           <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Akun (COA)</label>
+            <select 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={newEntry.account}
+              onChange={e => handleAccountChange(e.target.value)}
+            >
+              <option value="">Pilih Akun</option>
+              {COA.map(c => (
+                <option key={c.id} value={c.name}>{c.code} - {c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kategori</label>
             <select 
               className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
@@ -636,6 +774,17 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
               onChange={e => setNewEntry({...newEntry, credit: parseFloat(e.target.value), debit: 0})}
             />
           </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Metode Pembayaran</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={newEntry.payment_method}
+              onChange={e => setNewEntry({...newEntry, payment_method: e.target.value as any})}
+            >
+              <option value="Kas">Kas</option>
+              <option value="Bank">Bank</option>
+            </select>
+          </div>
           <div className="flex items-end gap-3">
             <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Simpan</button>
             <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
@@ -649,6 +798,7 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Keterangan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Metode</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Debit</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Kredit</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
@@ -662,6 +812,11 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
                   <span className="font-medium text-cafe-ink">{entry.description}</span>
                   <p className="text-[10px] opacity-40 uppercase tracking-tighter font-bold mt-1">{entry.category}</p>
                 </td>
+                <td className="p-6 text-xs font-mono">
+                  <span className={`px-2 py-1 rounded-md ${entry.payment_method === 'Bank' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                    {entry.payment_method || 'Kas'}
+                  </span>
+                </td>
                 <td className="p-6 text-sm text-right font-mono text-rose-600 font-bold">
                   {entry.debit > 0 ? formatCurrency(entry.debit) : '-'}
                 </td>
@@ -671,6 +826,128 @@ function JournalView({ journal, onUpdate }: { journal: JournalEntry[], onUpdate:
                 <td className="p-6 text-right">
                   <button 
                     onClick={() => handleDelete(entry.id)}
+                    className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function COAView({ COA, onUpdate }: { COA: COA[], onUpdate: () => void }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCOA, setNewCOA] = useState({ code: '', name: '', category: 'Expense' as any });
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/COA', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCOA)
+    });
+    if (res.ok) {
+      setShowAdd(false);
+      setNewCOA({ code: '', name: '', category: 'Expense' });
+      onUpdate();
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Hapus akun ini?')) return;
+    await fetch(`/api/COA/${id}`, { method: 'DELETE' });
+    onUpdate();
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-end">
+        <button 
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+        >
+          <Plus size={18} /> Tambah Akun
+        </button>
+      </div>
+
+      {showAdd && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6"
+          onSubmit={handleAdd}
+        >
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kode Akun</label>
+            <input 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newCOA.code}
+              onChange={e => setNewCOA({...newCOA, code: e.target.value})}
+              placeholder="Contoh: 101"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Akun</label>
+            <input 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+              value={newCOA.name}
+              onChange={e => setNewCOA({...newCOA, name: e.target.value})}
+              placeholder="Contoh: Bank Mandiri"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kategori</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={newCOA.category}
+              onChange={e => setNewCOA({...newCOA, category: e.target.value as any})}
+            >
+              <option value="Asset">Aset</option>
+              <option value="Income">Pendapatan</option>
+              <option value="Expense">Beban / Pengeluaran</option>
+            </select>
+          </div>
+          <div className="flex items-end gap-3">
+            <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Simpan</button>
+            <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
+          </div>
+        </motion.form>
+      )}
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Kode</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Nama Akun</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Kategori</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {COA.map(item => (
+              <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                <td className="p-6 text-sm font-mono font-bold text-cafe-espresso">{item.code}</td>
+                <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                <td className="p-6 text-xs">
+                  <span className={`px-2 py-1 rounded-md font-bold uppercase tracking-tighter ${
+                    item.category === 'Income' ? 'bg-emerald-50 text-emerald-700' : 
+                    item.category === 'Expense' ? 'bg-rose-50 text-rose-700' : 
+                    'bg-blue-50 text-blue-700'
+                  }`}>
+                    {item.category}
+                  </span>
+                </td>
+                <td className="p-6 text-right">
+                  <button 
+                    onClick={() => handleDelete(item.id)}
                     className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
                   >
                     <Trash2 size={16} />
@@ -1071,18 +1348,25 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
     items_sold: 1,
     date: new Date().toISOString().split('T')[0],
     description: 'Penjualan Harian',
-    menu_id: ''
+    menu_id: '',
+    payment_method: 'Kas'
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/transactions/sale', {
+    const res = await fetch('/api/transactions/sale', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData)
     });
-    alert('Penjualan berhasil dicatat!');
-    onUpdate();
+    
+    if (res.ok) {
+      alert('Penjualan berhasil dicatat!');
+      onUpdate();
+    } else {
+      const error = await res.json();
+      alert('Gagal mencatat penjualan: ' + (error.error || 'Unknown error'));
+    }
   };
 
   return (
@@ -1102,7 +1386,6 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Pilih Menu (Opsional)</label>
             <select 
-              required
               className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
               value={formData.menu_id}
               onChange={e => {
@@ -1168,6 +1451,18 @@ function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) 
                 });
               }}
             />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Metode Pembayaran</label>
+            <select 
+              required
+              className="w-full border-b border-cafe-ink/10 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={formData.payment_method}
+              onChange={e => setFormData({...formData, payment_method: e.target.value})}
+            >
+              <option value="Kas">Kas</option>
+              <option value="Bank">Bank</option>
+            </select>
           </div>
         </div>
         <div className="space-y-2">
@@ -1585,5 +1880,311 @@ function SettingsView({ inventory, units, onUpdateUnits }: { inventory: Inventor
         </div>
       </div>
     </div>
+  );
+}
+
+function WorksheetView({ journal }: { journal: JournalEntry[] }) {
+  const [worksheet, setWorksheet] = useState<{
+    kas: { inflow: number, outflow: number, balance: number },
+    bank: { inflow: number, outflow: number, balance: number },
+    total: { inflow: number, outflow: number, balance: number }
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchWorksheet();
+  }, [journal]);
+
+  const fetchWorksheet = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/reports/worksheet');
+      const data = await res.json();
+      setWorksheet(data);
+    } catch (error) {
+      console.error('Error fetching worksheet:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading || !worksheet) {
+    return <div className="p-10 text-center opacity-40 italic font-serif">Memuat data worksheet...</div>;
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-10"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.15em] text-orange-600 font-bold mb-4">Saldo Kas</p>
+          <h3 className="text-3xl font-mono text-cafe-ink">{formatCurrency(worksheet.kas.balance)}</h3>
+          <div className="mt-4 flex justify-between text-[10px] opacity-50 font-bold uppercase tracking-widest">
+            <span>Masuk: {formatCurrency(worksheet.kas.inflow)}</span>
+            <span>Keluar: {formatCurrency(worksheet.kas.outflow)}</span>
+          </div>
+        </div>
+        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.15em] text-blue-600 font-bold mb-4">Saldo Bank</p>
+          <h3 className="text-3xl font-mono text-cafe-ink">{formatCurrency(worksheet.bank.balance)}</h3>
+          <div className="mt-4 flex justify-between text-[10px] opacity-50 font-bold uppercase tracking-widest">
+            <span>Masuk: {formatCurrency(worksheet.bank.inflow)}</span>
+            <span>Keluar: {formatCurrency(worksheet.bank.outflow)}</span>
+          </div>
+        </div>
+        <div className="bg-cafe-espresso text-cafe-paper p-8 rounded-2xl shadow-xl">
+          <p className="text-[11px] uppercase tracking-[0.15em] text-cafe-paper/50 font-bold mb-4">Total Saldo</p>
+          <h3 className="text-3xl font-mono">{formatCurrency(worksheet.total.balance)}</h3>
+          <div className="mt-4 flex justify-between text-[10px] opacity-50 font-bold uppercase tracking-widest">
+            <span>Masuk: {formatCurrency(worksheet.total.inflow)}</span>
+            <span>Keluar: {formatCurrency(worksheet.total.outflow)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-6 border-b border-cafe-ink/5 bg-cafe-cream/10">
+          <h4 className="font-serif italic text-lg text-cafe-espresso">Rekapitulasi Jurnal</h4>
+        </div>
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Akun / Metode</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Masuk (Kredit)</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Keluar (Debit)</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Saldo Akhir</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            <tr className="hover:bg-cafe-cream/10 transition-colors">
+              <td className="p-6 text-sm font-bold text-orange-700">KAS (Tunai)</td>
+              <td className="p-6 text-sm text-right font-mono text-emerald-600">{formatCurrency(worksheet.kas.inflow)}</td>
+              <td className="p-6 text-sm text-right font-mono text-rose-600">{formatCurrency(worksheet.kas.outflow)}</td>
+              <td className="p-6 text-sm text-right font-mono font-bold">{formatCurrency(worksheet.kas.balance)}</td>
+            </tr>
+            <tr className="hover:bg-cafe-cream/10 transition-colors">
+              <td className="p-6 text-sm font-bold text-blue-700">BANK (Transfer)</td>
+              <td className="p-6 text-sm text-right font-mono text-emerald-600">{formatCurrency(worksheet.bank.inflow)}</td>
+              <td className="p-6 text-sm text-right font-mono text-rose-600">{formatCurrency(worksheet.bank.outflow)}</td>
+              <td className="p-6 text-sm text-right font-mono font-bold">{formatCurrency(worksheet.bank.balance)}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr className="bg-cafe-espresso text-cafe-paper font-bold">
+              <td className="p-6 text-sm uppercase tracking-widest">TOTAL</td>
+              <td className="p-6 text-sm text-right font-mono">{formatCurrency(worksheet.total.inflow)}</td>
+              <td className="p-6 text-sm text-right font-mono">{formatCurrency(worksheet.total.outflow)}</td>
+              <td className="p-6 text-sm text-right font-mono text-lg">{formatCurrency(worksheet.total.balance)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </motion.div>
+  );
+}
+
+function StockOpnameView({ stockOpnames, onUpdate }: { stockOpnames: StockOpname[], onUpdate: () => void }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [newOpname, setNewOpname] = useState({ reference_no: '', date: new Date().toISOString().split('T')[0], type: 'Penambahan' as const, description: '' });
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/stock-opname', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newOpname, status: 'Pending' })
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        setNewOpname({ reference_no: '', date: new Date().toISOString().split('T')[0], type: 'Penambahan', description: '' });
+        onUpdate();
+      }
+    } catch (error) {
+      console.error('Error adding stock opname:', error);
+    }
+  };
+
+  const handleUpdateStatus = async (id: number, status: 'Accept') => {
+    try {
+      const res = await fetch(`/api/stock-opname/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) onUpdate();
+    } catch (error) {
+      console.error('Error updating status:', error);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Hapus riwayat opname ini?')) return;
+    try {
+      const res = await fetch(`/api/stock-opname/${id}`, { method: 'DELETE' });
+      if (res.ok) onUpdate();
+    } catch (error) {
+      console.error('Error deleting stock opname:', error);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-8"
+    >
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-2xl font-serif italic text-cafe-espresso">Riwayat Stock Opname</h3>
+          <p className="text-sm opacity-50 mt-1">Kelola penyesuaian stok manual</p>
+        </div>
+        <button 
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl hover:shadow-lg transition-all font-medium"
+        >
+          <Plus size={18} />
+          Tambah Opname
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm overflow-hidden"
+          >
+            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">No Reference</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newOpname.reference_no}
+                  onChange={e => setNewOpname({...newOpname, reference_no: e.target.value})}
+                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
+                  placeholder="OPN-001"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Tanggal</label>
+                <input 
+                  type="date" 
+                  required
+                  value={newOpname.date}
+                  onChange={e => setNewOpname({...newOpname, date: e.target.value})}
+                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Type Opname</label>
+                <select 
+                  value={newOpname.type}
+                  onChange={e => setNewOpname({...newOpname, type: e.target.value as any})}
+                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
+                >
+                  <option value="Penambahan">Penambahan</option>
+                  <option value="Pengurangan">Pengurangan</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-bold opacity-40">Keterangan</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newOpname.description}
+                  onChange={e => setNewOpname({...newOpname, description: e.target.value})}
+                  className="w-full bg-cafe-paper/50 border border-cafe-ink/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cafe-espresso/20 outline-none transition-all"
+                  placeholder="Contoh: Selisih stok fisik"
+                />
+              </div>
+              <div className="lg:col-span-4 flex justify-end gap-4 mt-2">
+                <button 
+                  type="button"
+                  onClick={() => setShowAdd(false)}
+                  className="px-6 py-3 text-sm font-medium text-cafe-ink/60 hover:text-cafe-ink transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit"
+                  className="bg-cafe-espresso text-cafe-paper px-8 py-3 rounded-xl hover:shadow-lg transition-all font-medium"
+                >
+                  Simpan Opname
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">No Reference</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Type Opname</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Status</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Keterangan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {stockOpnames.map(item => (
+              <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                <td className="p-6 text-sm font-mono font-bold text-cafe-espresso">{item.reference_no}</td>
+                <td className="p-6 text-sm text-cafe-ink">{item.date}</td>
+                <td className="p-6">
+                  <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
+                    item.type === 'Penambahan' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                  }`}>
+                    {item.type}
+                  </span>
+                </td>
+                <td className="p-6">
+                  <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
+                    item.status === 'Accept' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                  }`}>
+                    {item.status}
+                  </span>
+                </td>
+                <td className="p-6 text-sm text-cafe-ink/70">{item.description}</td>
+                <td className="p-6 text-right">
+                  <div className="flex justify-end gap-3">
+                    {item.status === 'Pending' && (
+                      <button 
+                        onClick={() => handleUpdateStatus(item.id, 'Accept')}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Accept"
+                      >
+                        <Save size={18} />
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => handleDelete(item.id)}
+                      className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {stockOpnames.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada riwayat stock opname.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </motion.div>
   );
 }

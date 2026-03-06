@@ -19,6 +19,7 @@ export interface JournalEntry {
   debit: number;
   credit: number;
   category: 'Income' | 'Expense' | 'Asset';
+  payment_method?: 'Bank' | 'Kas';
 }
 
 export interface Asset {
@@ -52,6 +53,13 @@ export interface MenuIngredient {
   quantity: number;
 }
 
+export interface COA {
+  id: number;
+  code: string;
+  name: string;
+  category: 'Income' | 'Expense' | 'Asset';
+}
+
 export interface Purchase {
   id: number;
   inventory_id: number;
@@ -59,5 +67,14 @@ export interface Purchase {
   quantity: number;
   total_cost: number;
   date: string;
+  description: string;
+}
+
+export interface StockOpname {
+  id: number;
+  reference_no: string;
+  date: string;
+  type: 'Penambahan' | 'Pengurangan';
+  status: 'Pending' | 'Accept';
   description: string;
 }
