@@ -20,7 +20,7 @@ export interface JournalEntry {
   account: string;
   debit: number;
   credit: number;
-  category: 'Income' | 'Expense' | 'Asset';
+  category?: 'Income' | 'Expense' | 'Asset';
   payment_method?: 'Bank' | 'Kas';
 }
 
@@ -88,4 +88,15 @@ export interface StockOpname {
   status: 'Pending' | 'Accept' | 'Menunggu Accept PIC';
   description: string;
   items?: StockOpnameItem[];
+}
+
+export interface PersonalInformation {
+  id: number;
+  full_name: string;
+  address: string;
+  birth_info: string;
+  ktp_number: string;
+  phone_number: string;
+  join_date: string;
+  role: string;
 }

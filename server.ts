@@ -9,8 +9,8 @@ import multer from "multer";
 dotenv.config();
 
 console.log("Environment check:");
-console.log("- SUPABASE_URL:", process.env.SUPABASE_URL ? "Defined" : "MISSING");
-console.log("- SUPABASE_ANON_KEY:", process.env.SUPABASE_ANON_KEY ? "Defined" : "MISSING");
+console.log("- SUPABASE_URL:", (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) ? "Defined" : "MISSING");
+console.log("- SUPABASE_ANON_KEY:", (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY) ? "Defined" : "MISSING");
 console.log("- SUPABASE_SERVICE_ROLE_KEY:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "Defined" : "MISSING");
 console.log("- NODE_ENV:", process.env.NODE_ENV);
 console.log("- VERCEL:", process.env.VERCEL);
@@ -19,9 +19,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 console.log("Supabase Configuration:");
 console.log("- URL:", supabaseUrl ? "Present" : "MISSING");
@@ -603,6 +603,52 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get("/api/personal-info", async (req, res) => {
+    const { data, error } = await supabase
+      .from("personal_info")
+      .select("*")
+      .order("id", { ascending: true });
+    
+    if (error) {
+      console.error("Supabase error in GET /api/personal-info:", error);
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data);
+  });
+
+  app.post("/api/personal-info", async (req, res) => {
+    const { full_name, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
+    const { data, error } = await supabase
+      .from("personal_info")
+      .insert([{ full_name, address, birth_info, ktp_number, phone_number, join_date, role }])
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  });
+
+  app.put("/api/personal-info/:id", async (req, res) => {
+    const { full_name, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
+    const { data, error } = await supabase
+      .from("personal_info")
+      .update({ full_name, address, birth_info, ktp_number, phone_number, join_date, role })
+      .eq("id", req.params.id)
+      .select();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data[0]);
+  });
+
+  app.delete("/api/personal-info/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("personal_info")
+      .delete()
+      .eq("id", req.params.id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
   app.get("/api/purchases", async (req, res) => {
     try {
       const { data, error } = await supabase
@@ -908,14 +954,18 @@ async function startServer() {
   });
 }
 
-// Initialize routes
-startServer();
+// Initialize routes and start server
+async function init() {
+  await startServer();
 
-// Start server if not on Vercel
-if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Start server if not on Vercel
+  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
+
+init();
 
 export default app;

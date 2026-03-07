@@ -30,10 +30,15 @@ import {
   List,
   FileDown,
   FileUp,
-  Download
+  Download,
+  LogOut,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole, PersonalInformation } from './types';
+import Login from './Login';
+import { supabase } from './lib/supabase';
+import { Session } from '@supabase/supabase-js';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -44,7 +49,7 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info'>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('userRole');
     return (saved as UserRole) || 'Manager';
@@ -61,11 +66,16 @@ export default function App() {
   const [profitLoss, setProfitLoss] = useState<ProfitLoss>({ income: 0, expenses: 0 });
   const [units, setUnits] = useState<Unit[]>([]);
   const [menus, setMenus] = useState<Menu[]>([]);
+  const [personalInfo, setPersonalInfo] = useState<PersonalInformation[]>([]);
   const [egressStatus, setEgressStatus] = useState<{ usage: number, limit: number, percentage: number, warning: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [isStockOpen, setIsStockOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isEditingThreshold, setIsEditingThreshold] = useState(false);
+  const [loginData, setLoginData] = useState({ username: '', password: '' });
 
   useEffect(() => {
     localStorage.setItem('userRole', userRole);
@@ -76,13 +86,37 @@ export default function App() {
   }, [lowStockThreshold]);
 
   useEffect(() => {
-    fetchData();
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setIsAuthenticated(!!session);
+      if (session?.user?.email === 'muhammadmahardhikadib@gmail.com') {
+        setUserRole('Manager');
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setIsAuthenticated(!!session);
+      if (session?.user?.email === 'muhammadmahardhikadib@gmail.com') {
+        setUserRole('Manager');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, stockOpnameRes] = await Promise.all([
+      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, stockOpnameRes, personalRes] = await Promise.all([
         fetch('/api/inventory'),
         fetch('/api/journal'),
         fetch('/api/assets'),
@@ -91,8 +125,9 @@ export default function App() {
         fetch('/api/menus'),
         fetch('/api/egress-status'),
         fetch('/api/purchases'),
-        fetch('/api/COA'),
-        fetch('/api/stock-opname')
+        fetch('/api/coa'),
+        fetch('/api/stock-opname'),
+        fetch('/api/personal-info')
       ]);
       
       const invData = await invRes.json();
@@ -105,6 +140,7 @@ export default function App() {
       const purchasesData = await purchasesRes.json();
       const COAData = await COARes.json();
       const stockOpnameData = await stockOpnameRes.json();
+      const personalData = await personalRes.json();
 
       setInventory(Array.isArray(invData) ? invData : []);
       setJournal(Array.isArray(journalData) ? journalData : []);
@@ -115,6 +151,7 @@ export default function App() {
       setProfitLoss(plData && !plData.error ? plData : { income: 0, expenses: 0 });
       setUnits(Array.isArray(unitsData) ? unitsData : []);
       setMenus(Array.isArray(menusData) ? menusData : []);
+      setPersonalInfo(Array.isArray(personalData) ? personalData : []);
       setEgressStatus(egressData && !egressData.error ? egressData : null);
 
       // Report errors if any
@@ -147,13 +184,28 @@ export default function App() {
     return (asset.purchase_price / totalMonths) * diffMonths;
   };
 
+  if (!isAuthenticated) {
+    return <Login onLogin={() => {
+      // Supabase onAuthStateChange will handle the state update
+    }} />;
+  }
+
   return (
-    <div className="min-h-screen bg-cafe-paper text-cafe-ink font-sans flex">
+    <div className="min-h-screen bg-cafe-paper text-cafe-ink font-sans flex relative">
+      {/* Global Background Image */}
+      <div 
+        className="fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none z-0"
+        style={{ 
+          backgroundImage: 'url("https://lh3.googleusercontent.com/d/198oYjXACqSBRz8Lql2Yrs8GEE0ddIgjU")',
+          opacity: 0.1
+        }}
+      />
+      
       {/* Sidebar */}
-      <aside className={`${isMinimized ? 'w-20' : 'w-72'} border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/30 transition-all duration-300 relative`}>
+      <aside className={`${isMinimized ? 'w-20' : 'w-72'} border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/30 backdrop-blur-sm transition-all duration-300 relative z-20`}>
         <button 
           onClick={() => setIsMinimized(!isMinimized)}
-          className="absolute -right-3 top-10 bg-cafe-espresso text-cafe-paper rounded-full p-1 shadow-lg z-20 hover:scale-110 transition-transform"
+          className="absolute -right-4 top-10 bg-cafe-espresso text-cafe-paper rounded-full p-1.5 shadow-lg z-30 hover:scale-110 transition-transform border-2 border-cafe-paper flex items-center justify-center"
         >
           {isMinimized ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
@@ -200,7 +252,8 @@ export default function App() {
               ]
             },
             { id: 'assets', icon: HardDrive, label: 'Manajemen Aset', roles: ['Manager', 'Admin'] },
-            { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory'] },
+            { id: 'personal-info', icon: User, label: 'Informasi Personal', roles: ['Manager', 'Admin', 'Inventory', 'Finance'] },
+            { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory', 'Finance'] },
           ].filter(item => item.roles.includes(userRole)).map((item) => {
             if (item.isGroup) {
               const isActive = item.subItems?.some(sub => sub.id === activeTab);
@@ -272,8 +325,19 @@ export default function App() {
           })}
         </nav>
 
-        <div className={`p-8 border-t border-cafe-ink/10 ${isMinimized ? 'flex justify-center' : ''}`}>
-          <div className="flex items-center gap-3 opacity-40">
+        <div className={`p-6 border-t border-cafe-ink/10 space-y-4`}>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+            }}
+            className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'gap-4'} px-5 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-all rounded-xl`}
+            title={isMinimized ? 'Logout' : ''}
+          >
+            <LogOut size={18} />
+            {!isMinimized && 'Logout'}
+          </button>
+          
+          <div className={`flex items-center gap-3 opacity-40 ${isMinimized ? 'justify-center' : ''}`}>
             <div className="w-2 h-2 rounded-full bg-cafe-latte animate-pulse"></div>
             {!isMinimized && <span className="text-[10px] uppercase tracking-widest font-semibold">System Active</span>}
           </div>
@@ -281,7 +345,7 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden relative z-10">
         <header className="h-24 border-b border-cafe-ink/10 flex items-center justify-between px-10 bg-cafe-paper/80 backdrop-blur-md sticky top-0 z-10">
           <div className="flex flex-col">
             <h2 className="text-2xl font-serif italic text-cafe-espresso capitalize leading-none">{activeTab.replace('-', ' ')}</h2>
@@ -427,15 +491,21 @@ export default function App() {
               <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} userRole={userRole} />
             )}
 
+            {activeTab === 'personal-info' && (
+              <PersonalInfoView personalInfo={personalInfo} onUpdate={fetchData} userRole={userRole} />
+            )}
+
             {activeTab === 'settings' && (
               <SettingsView 
                 inventory={inventory} 
                 units={units} 
                 onUpdateUnits={fetchData} 
                 userRole={userRole} 
-                setUserRole={setUserRole} 
+                setUserRole={setUserRole}
                 lowStockThreshold={lowStockThreshold}
                 setLowStockThreshold={setLowStockThreshold}
+                isEditingThreshold={isEditingThreshold}
+                setIsEditingThreshold={setIsEditingThreshold}
               />
             )}
           </AnimatePresence>
@@ -690,7 +760,7 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
   );
 }
 
-function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void }) {
+function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void, userRole: UserRole }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -698,33 +768,82 @@ function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA:
     account: '',
     debit: 0,
     credit: 0,
-    category: 'Expense' as any,
     payment_method: 'Kas' as any
   });
 
   const handleAccountChange = (accountName: string) => {
-    const selectedCOA = COA.find(c => c.name === accountName);
     setNewEntry({
       ...newEntry,
       account: accountName,
-      category: selectedCOA ? selectedCOA.category : newEntry.category
     });
   };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/journal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newEntry)
-    });
     
-    if (res.ok) {
+    // Create two entries: one for the account and one for the payment method (offset)
+    const entries = [];
+    
+    const selectedCOA = COA.find(c => c.name === newEntry.account);
+    const category = selectedCOA ? selectedCOA.category : 'Expense';
+
+    if (newEntry.debit > 0) {
+      // Entry 1: Account (Debit)
+      entries.push({
+        date: newEntry.date,
+        description: newEntry.description,
+        account: newEntry.account,
+        debit: newEntry.debit,
+        credit: 0,
+        category: category,
+        payment_method: newEntry.payment_method
+      });
+      // Entry 2: Payment Method (Credit)
+      entries.push({
+        date: newEntry.date,
+        description: newEntry.payment_method,
+        account: newEntry.payment_method,
+        debit: 0,
+        credit: newEntry.debit,
+        category: 'Asset', // Kas/Bank is an Asset
+        payment_method: newEntry.payment_method
+      });
+    } else if (newEntry.credit > 0) {
+      // Entry 1: Account (Credit)
+      entries.push({
+        date: newEntry.date,
+        description: newEntry.description,
+        account: newEntry.account,
+        debit: 0,
+        credit: newEntry.credit,
+        category: category,
+        payment_method: newEntry.payment_method
+      });
+      // Entry 2: Payment Method (Debit)
+      entries.push({
+        date: newEntry.date,
+        description: newEntry.payment_method,
+        account: newEntry.payment_method,
+        debit: newEntry.credit,
+        credit: 0,
+        category: 'Asset',
+        payment_method: newEntry.payment_method
+      });
+    }
+
+    try {
+      for (const entry of entries) {
+        const res = await fetch('/api/journal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+        if (!res.ok) throw new Error('Gagal menambah entri');
+      }
       setShowAdd(false);
       onUpdate();
-    } else {
-      const error = await res.json();
-      alert('Gagal menambah entri: ' + (error.error || 'Unknown error'));
+    } catch (error: any) {
+      alert(error.message);
     }
   };
 
@@ -786,18 +905,6 @@ function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA:
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kategori</label>
-            <select 
-              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
-              value={newEntry.category}
-              onChange={e => setNewEntry({...newEntry, category: e.target.value as any})}
-            >
-              <option value="Income">Pendapatan</option>
-              <option value="Expense">Beban / Pengeluaran</option>
-              <option value="Asset">Aset</option>
-            </select>
-          </div>
-          <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Debit (Keluar)</label>
             <input 
               type="number"
@@ -851,7 +958,6 @@ function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA:
                 <td className="p-6 text-xs font-mono opacity-60">{entry.date}</td>
                 <td className="p-6 text-sm">
                   <span className="font-medium text-cafe-ink">{entry.description}</span>
-                  <p className="text-[10px] opacity-40 uppercase tracking-tighter font-bold mt-1">{entry.category}</p>
                 </td>
                 <td className="p-6 text-xs font-mono">
                   <span className={`px-2 py-1 rounded-md ${entry.payment_method === 'Bank' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
@@ -859,10 +965,10 @@ function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA:
                   </span>
                 </td>
                 <td className="p-6 text-sm text-right font-mono text-rose-600 font-bold">
-                  {entry.debit > 0 ? formatCurrency(entry.debit) : '-'}
+                  {entry.debit > 0 ? formatCurrency(entry.debit) : '0'}
                 </td>
                 <td className="p-6 text-sm text-right font-mono text-emerald-600 font-bold">
-                  {entry.credit > 0 ? formatCurrency(entry.credit) : '-'}
+                  {entry.credit > 0 ? formatCurrency(entry.credit) : '0'}
                 </td>
                 <td className="p-6 text-right">
                   <button 
@@ -881,13 +987,13 @@ function JournalView({ journal, COA, onUpdate }: { journal: JournalEntry[], COA:
   );
 }
 
-function COAView({ COA, onUpdate }: { COA: COA[], onUpdate: () => void }) {
+function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void, userRole: UserRole }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newCOA, setNewCOA] = useState({ code: '', name: '', category: 'Expense' as any });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/COA', {
+    const res = await fetch('/api/coa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newCOA)
@@ -901,7 +1007,7 @@ function COAView({ COA, onUpdate }: { COA: COA[], onUpdate: () => void }) {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Hapus akun ini?')) return;
-    await fetch(`/api/COA/${id}`, { method: 'DELETE' });
+    await fetch(`/api/coa/${id}`, { method: 'DELETE' });
     onUpdate();
   };
 
@@ -1067,10 +1173,11 @@ function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal:
   );
 }
 
-function AssetsView({ assets, onUpdate, calculateDepreciation }: { 
+function AssetsView({ assets, onUpdate, calculateDepreciation, userRole }: { 
   assets: Asset[], 
   onUpdate: () => void,
-  calculateDepreciation: (a: Asset) => number
+  calculateDepreciation: (a: Asset) => number,
+  userRole: UserRole
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newAsset, setNewAsset] = useState({
@@ -1214,7 +1321,7 @@ function AssetsView({ assets, onUpdate, calculateDepreciation }: {
   );
 }
 
-function PurchaseView({ inventory, purchases, onUpdate }: { inventory: InventoryItem[], purchases: Purchase[], onUpdate: () => void }) {
+function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory: InventoryItem[], purchases: Purchase[], onUpdate: () => void, userRole: UserRole }) {
   const [formData, setFormData] = useState({
     inventory_id: '',
     quantity: 0,
@@ -1383,7 +1490,7 @@ function PurchaseView({ inventory, purchases, onUpdate }: { inventory: Inventory
   );
 }
 
-function SaleView({ menus, onUpdate }: { menus: Menu[], onUpdate: () => void }) {
+function SaleView({ menus, onUpdate, userRole }: { menus: Menu[], onUpdate: () => void, userRole: UserRole }) {
   const [formData, setFormData] = useState({
     amount: 0,
     items_sold: 1,
@@ -1917,7 +2024,27 @@ function MenuView({ inventory, menus, onUpdate, userRole }: { inventory: Invento
   );
 }
 
-function SettingsView({ inventory, units, onUpdateUnits, userRole, setUserRole, lowStockThreshold, setLowStockThreshold }: { inventory: InventoryItem[], units: Unit[], onUpdateUnits: () => void, userRole: UserRole, setUserRole: (role: UserRole) => void, lowStockThreshold: number, setLowStockThreshold: (val: number) => void }) {
+function SettingsView({ 
+  inventory, 
+  units, 
+  onUpdateUnits, 
+  userRole, 
+  setUserRole,
+  lowStockThreshold, 
+  setLowStockThreshold,
+  isEditingThreshold,
+  setIsEditingThreshold
+}: { 
+  inventory: InventoryItem[], 
+  units: Unit[], 
+  onUpdateUnits: () => void, 
+  userRole: UserRole, 
+  setUserRole: (role: UserRole) => void,
+  lowStockThreshold: number, 
+  setLowStockThreshold: (val: number) => void,
+  isEditingThreshold: boolean,
+  setIsEditingThreshold: (val: boolean) => void
+}) {
   const [newUnit, setNewUnit] = useState('');
 
   const handleAddUnit = async (e: React.FormEvent) => {
@@ -1947,38 +2074,62 @@ function SettingsView({ inventory, units, onUpdateUnits, userRole, setUserRole, 
   return (
     <div className="space-y-8">
       <div className="max-w-2xl mx-auto space-y-8">
-        {/* Role Settings */}
-        <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
-          <div className="flex items-center gap-3">
-            <Settings className="text-cafe-espresso" size={20} />
-            <h4 className="text-lg font-bold text-cafe-espresso">Pengaturan Role</h4>
+        {/* Role Settings - Only for Managers */}
+        {userRole === 'Manager' && (
+          <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <User className="text-cafe-espresso" size={20} />
+              <h4 className="text-lg font-bold text-cafe-espresso">Pengaturan Role</h4>
+            </div>
+            <p className="text-xs text-cafe-ink/60 leading-relaxed">
+              Pilih role Anda untuk mengakses fitur yang sesuai. (Hanya Manager yang dapat mengubah role).
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {(['Manager', 'Admin', 'Inventory', 'Finance', 'Staff'] as UserRole[]).map((role) => (
+                <button
+                  key={role}
+                  onClick={() => setUserRole(role)}
+                  className={`px-4 py-3 rounded-xl text-xs font-bold transition-all ${
+                    userRole === role
+                      ? 'bg-cafe-espresso text-white shadow-lg shadow-cafe-espresso/20'
+                      : 'bg-cafe-espresso/5 text-cafe-espresso hover:bg-cafe-espresso/10'
+                  }`}
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="text-xs text-cafe-ink/60 leading-relaxed">
-            Pilih role Anda untuk menyesuaikan akses fitur dan izin dalam aplikasi.
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(['Manager', 'Admin', 'Inventory', 'Finance'] as UserRole[]).map((role) => (
-              <button
-                key={role}
-                onClick={() => setUserRole(role)}
-                className={`px-4 py-3 rounded-xl text-xs font-bold transition-all border ${
-                  userRole === role
-                    ? 'bg-cafe-espresso text-cafe-paper border-cafe-espresso shadow-md'
-                    : 'bg-white text-cafe-ink/60 border-cafe-ink/10 hover:border-cafe-espresso/30'
-                }`}
-              >
-                {role}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* Low Stock Settings */}
         {userRole === 'Inventory' || userRole === 'Manager' ? (
           <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
-            <div className="flex items-center gap-3">
-              <RefreshCw className="text-cafe-espresso" size={20} />
-              <h4 className="text-lg font-bold text-cafe-espresso">Pengingat Stok Menipis</h4>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="text-cafe-espresso" size={20} />
+                <h4 className="text-lg font-bold text-cafe-espresso">Pengingat Stok Menipis</h4>
+              </div>
+              <button
+                onClick={() => setIsEditingThreshold(!isEditingThreshold)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  isEditingThreshold 
+                    ? 'bg-cafe-espresso text-white shadow-lg shadow-cafe-espresso/20' 
+                    : 'bg-cafe-espresso/5 text-cafe-espresso hover:bg-cafe-espresso/10'
+                }`}
+              >
+                {isEditingThreshold ? (
+                  <>
+                    <Save size={14} />
+                    Simpan
+                  </>
+                ) : (
+                  <>
+                    <Edit2 size={14} />
+                    Edit
+                  </>
+                )}
+              </button>
             </div>
             <p className="text-xs text-cafe-ink/60 leading-relaxed">
               Atur ambang batas stok minimum untuk memicu peringatan "Stok Menipis" di dashboard.
@@ -1986,7 +2137,12 @@ function SettingsView({ inventory, units, onUpdateUnits, userRole, setUserRole, 
             <div className="flex items-center gap-4">
               <input 
                 type="number"
-                className="w-24 border-b border-cafe-ink/10 py-2 text-sm font-mono focus:border-cafe-espresso focus:outline-none transition-colors"
+                disabled={!isEditingThreshold}
+                className={`w-24 border-b py-2 text-sm font-mono focus:outline-none transition-all ${
+                  isEditingThreshold 
+                    ? 'border-cafe-espresso text-cafe-espresso' 
+                    : 'border-transparent text-cafe-ink/40 cursor-not-allowed'
+                }`}
                 value={lowStockThreshold}
                 onChange={e => setLowStockThreshold(parseInt(e.target.value) || 0)}
               />
@@ -2679,5 +2835,283 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: PersonalInformation[], onUpdate: () => void, userRole: UserRole }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState<PersonalInformation | null>(null);
+  const [formData, setFormData] = useState({
+    full_name: '',
+    address: '',
+    birth_info: '',
+    ktp_number: '',
+    phone_number: '',
+    join_date: new Date().toISOString().split('T')[0],
+    role: 'Staff'
+  });
+
+  // Filter to only show records matching the current role (simulating "only me")
+  const myInfo = personalInfo.filter(item => item.role === userRole);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = editingItem ? `/api/personal-info/${editingItem.id}` : '/api/personal-info';
+    const method = editingItem ? 'PUT' : 'POST';
+    
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    });
+
+    if (res.ok) {
+      setShowAdd(false);
+      setEditingItem(null);
+      setFormData({
+        full_name: '',
+        address: '',
+        birth_info: '',
+        ktp_number: '',
+        phone_number: '',
+        join_date: new Date().toISOString().split('T')[0],
+        role: 'Staff'
+      });
+      onUpdate();
+    } else {
+      const error = await res.json();
+      alert('Gagal menyimpan data: ' + (error.error || 'Unknown error'));
+    }
+  };
+
+  const handleEdit = (item: PersonalInformation) => {
+    setEditingItem(item);
+    setFormData({
+      full_name: item.full_name,
+      address: item.address,
+      birth_info: item.birth_info,
+      ktp_number: item.ktp_number,
+      phone_number: item.phone_number,
+      join_date: item.join_date,
+      role: item.role
+    });
+    setShowAdd(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Hapus data personal ini?')) return;
+    const res = await fetch(`/api/personal-info/${id}`, { method: 'DELETE' });
+    if (res.ok) onUpdate();
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Informasi Personal</h3>
+        <button 
+          onClick={() => {
+            if (myInfo.length > 0) {
+              handleEdit(myInfo[0]);
+            } else {
+              setEditingItem(null);
+              setFormData({
+                full_name: '',
+                address: '',
+                birth_info: '',
+                ktp_number: '',
+                phone_number: '',
+                join_date: new Date().toISOString().split('T')[0],
+                role: userRole // Default to current role
+              });
+              setShowAdd(true);
+            }
+          }}
+          className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+        >
+          {myInfo.length > 0 ? <Edit2 size={18} /> : <Plus size={18} />}
+          {myInfo.length > 0 ? 'Edit Data' : 'Tambah Data'}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm"
+          >
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Lengkap</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.full_name}
+                  onChange={e => setFormData({...formData, full_name: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tempat Tanggal Lahir</label>
+                <input 
+                  required
+                  placeholder="Contoh: Jakarta, 01-01-1990"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.birth_info}
+                  onChange={e => setFormData({...formData, birth_info: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Alamat</label>
+                <textarea 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors min-h-[80px]"
+                  value={formData.address}
+                  onChange={e => setFormData({...formData, address: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">No KTP</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.ktp_number}
+                  onChange={e => setFormData({...formData, ktp_number: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nomor Handphone</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.phone_number}
+                  onChange={e => setFormData({...formData, phone_number: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal Masuk</label>
+                <input 
+                  type="date"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.join_date}
+                  onChange={e => setFormData({...formData, join_date: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Role</label>
+                <select 
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                  value={formData.role}
+                  onChange={e => setFormData({...formData, role: e.target.value})}
+                  disabled={userRole !== 'Manager'} // Only manager can change role in personal info
+                >
+                  <option value="Manager">Manager</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Inventory">Inventory</option>
+                  <option value="Finance">Finance</option>
+                  <option value="Staff">Staff</option>
+                </select>
+              </div>
+              <div className="flex items-end gap-3 md:col-span-2">
+                <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold shadow-lg shadow-cafe-espresso/20">
+                  {editingItem ? 'Update Data' : 'Simpan Data'}
+                </button>
+                <button type="button" onClick={() => { setShowAdd(false); setEditingItem(null); }} className="px-8 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5 transition-colors">
+                  Batal
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {myInfo.map(item => (
+          <motion.div 
+            key={item.id}
+            layout
+            className="bg-white border border-cafe-ink/5 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all group relative"
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-3 bg-cafe-cream/30 rounded-xl text-cafe-espresso">
+                <User size={24} />
+              </div>
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={() => handleEdit(item)}
+                  className="p-2 hover:bg-cafe-espresso/5 rounded-lg text-cafe-espresso transition-colors"
+                  title="Edit"
+                >
+                  <Edit2 size={16} />
+                </button>
+                {userRole === 'Manager' && (
+                  <button 
+                    onClick={() => handleDelete(item.id)}
+                    className="p-2 hover:bg-rose-50 rounded-lg text-rose-600 transition-colors"
+                    title="Hapus"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-lg font-serif italic text-cafe-espresso leading-tight">{item.full_name}</h4>
+                <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-1 bg-cafe-espresso/5 text-cafe-espresso rounded mt-1 inline-block">
+                  {item.role}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><HardDrive size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">No KTP</p>
+                    <p className="text-xs font-mono">{item.ktp_number}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><Coffee size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">TTL</p>
+                    <p className="text-xs">{item.birth_info}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><Settings size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">Handphone</p>
+                    <p className="text-xs font-mono">{item.phone_number}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><LayoutDashboard size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">Tanggal Masuk</p>
+                    <p className="text-xs">{item.join_date}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><BookOpen size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">Alamat</p>
+                    <p className="text-xs opacity-70 line-clamp-2">{item.address}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+        {myInfo.length === 0 && (
+          <div className="col-span-full p-20 text-center bg-white/50 border border-dashed border-cafe-ink/10 rounded-3xl">
+            <User size={48} className="mx-auto mb-4 opacity-10" />
+            <p className="text-sm opacity-40 italic font-serif">Belum ada data informasi personal.</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
