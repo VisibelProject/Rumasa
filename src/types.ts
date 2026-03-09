@@ -93,6 +93,7 @@ export interface StockOpname {
 export interface PersonalInformation {
   id: number;
   full_name: string;
+  email: string;
   address: string;
   birth_info: string;
   ktp_number: string;

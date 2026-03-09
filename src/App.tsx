@@ -32,7 +32,8 @@ import {
   FileUp,
   Download,
   LogOut,
-  User
+  User,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole, PersonalInformation } from './types';
@@ -49,7 +50,7 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('userRole');
     return (saved as UserRole) || 'Manager';
@@ -71,7 +72,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [isStockOpen, setIsStockOpen] = useState(false);
+  const [isPersonalOpen, setIsPersonalOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isEditingThreshold, setIsEditingThreshold] = useState(false);
@@ -90,18 +93,12 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsAuthenticated(!!session);
-      if (session?.user?.email === 'muhammadmahardhikadib@gmail.com') {
-        setUserRole('Manager');
-      }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setIsAuthenticated(!!session);
-      if (session?.user?.email === 'muhammadmahardhikadib@gmail.com') {
-        setUserRole('Manager');
-      }
     });
 
     return () => subscription.unsubscribe();
@@ -202,13 +199,25 @@ export default function App() {
       />
       
       {/* Sidebar */}
-      <aside className={`${isMinimized ? 'w-20' : 'w-72'} border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/30 backdrop-blur-sm transition-all duration-300 relative z-20`}>
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:relative lg:translate-x-0
+        ${isMinimized ? 'lg:w-20' : 'lg:w-72'} 
+        w-72 border-r border-cafe-ink/10 flex flex-col bg-cafe-cream/95 lg:bg-cafe-cream/30 backdrop-blur-md lg:backdrop-blur-sm
+      `}>
         <button 
           onClick={() => setIsMinimized(!isMinimized)}
-          className="absolute -right-4 top-10 bg-cafe-espresso text-cafe-paper rounded-full p-1.5 shadow-lg z-30 hover:scale-110 transition-transform border-2 border-cafe-paper flex items-center justify-center"
+          className="hidden lg:flex absolute -right-4 top-10 bg-cafe-espresso text-cafe-paper rounded-full p-1.5 shadow-lg z-30 hover:scale-110 transition-transform border-2 border-cafe-paper items-center justify-center"
         >
           {isMinimized ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
+
+        <div className="lg:hidden absolute right-4 top-4">
+          <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-cafe-espresso">
+            <X size={24} />
+          </button>
+        </div>
 
         <div className={`pt-8 pb-2 ${isMinimized ? 'px-2' : 'px-8'} border-b border-cafe-ink/10 transition-all`}>
           <div className="flex flex-col items-center text-center">
@@ -252,19 +261,44 @@ export default function App() {
               ]
             },
             { id: 'assets', icon: HardDrive, label: 'Manajemen Aset', roles: ['Manager', 'Admin'] },
-            { id: 'personal-info', icon: User, label: 'Informasi Personal', roles: ['Manager', 'Admin', 'Inventory', 'Finance'] },
+            { 
+              id: 'personal-group', 
+              icon: User, 
+              label: 'Informasi Personal',
+              isGroup: true,
+              roles: ['Manager', 'Admin', 'Inventory', 'Finance'],
+              subItems: [
+                { id: 'personal-info', icon: User, label: 'Profil Saya' },
+                { id: 'employee-data', icon: List, label: 'Data Karyawan' },
+              ]
+            },
             { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory', 'Finance'] },
           ].filter(item => item.roles.includes(userRole)).map((item) => {
             if (item.isGroup) {
               const isActive = item.subItems?.some(sub => sub.id === activeTab);
-              const isOpen = item.id === 'journal-group' ? isJournalOpen : isStockOpen;
-              const setIsOpen = item.id === 'journal-group' ? setIsJournalOpen : setIsStockOpen;
+              let isOpen = false;
+              let setIsOpen = (val: boolean) => {};
+
+              if (item.id === 'journal-group') {
+                isOpen = isJournalOpen;
+                setIsOpen = setIsJournalOpen;
+              } else if (item.id === 'stock-group') {
+                isOpen = isStockOpen;
+                setIsOpen = setIsStockOpen;
+              } else if (item.id === 'personal-group') {
+                isOpen = isPersonalOpen;
+                setIsOpen = setIsPersonalOpen;
+              }
 
               return (
                 <div key={item.id} className="space-y-1">
                   <button
-                    onClick={() => !isMinimized && setIsOpen(!isOpen)}
-                    className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'justify-between'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
+                    onClick={() => {
+                      if (!isMinimized) {
+                        setIsOpen(!isOpen);
+                      }
+                    }}
+                    className={`w-full flex items-center ${isMinimized ? 'lg:justify-center' : 'justify-between'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
                       isActive || isOpen
                         ? 'bg-cafe-espresso/5 text-cafe-espresso' 
                         : 'text-cafe-ink/60 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
@@ -273,13 +307,13 @@ export default function App() {
                   >
                     <div className="flex items-center gap-4">
                       <item.icon size={18} strokeWidth={isActive ? 2.5 : 2} />
-                      {!isMinimized && item.label}
+                      {(!isMinimized || (isMobileMenuOpen && window.innerWidth < 1024)) && item.label}
                     </div>
-                    {!isMinimized && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+                    {(!isMinimized || (isMobileMenuOpen && window.innerWidth < 1024)) && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
                   </button>
                   
                   <AnimatePresence>
-                    {(!isMinimized && (isOpen || isActive)) && (
+                    {((!isMinimized || (isMobileMenuOpen && window.innerWidth < 1024)) && (isOpen || isActive)) && (
                       <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
@@ -289,7 +323,10 @@ export default function App() {
                         {item.subItems?.map(sub => (
                           <button
                             key={sub.id}
-                            onClick={() => setActiveTab(sub.id as any)}
+                            onClick={() => {
+                              setActiveTab(sub.id as any);
+                              if (window.innerWidth < 1024) setIsMobileMenuOpen(false);
+                            }}
                             className={`w-full flex items-center gap-4 px-5 py-2.5 text-xs font-medium transition-all duration-300 rounded-lg ${
                               activeTab === sub.id 
                                 ? 'bg-cafe-espresso text-cafe-paper shadow-md' 
@@ -310,8 +347,11 @@ export default function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id as any)}
-                className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'gap-4'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
+                onClick={() => {
+                  setActiveTab(item.id as any);
+                  if (window.innerWidth < 1024) setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center ${isMinimized ? 'lg:justify-center' : 'gap-4'} px-5 py-3.5 text-sm font-medium transition-all duration-300 rounded-lg ${
                   activeTab === item.id 
                     ? 'bg-cafe-espresso text-cafe-paper shadow-lg shadow-cafe-espresso/20' 
                     : 'text-cafe-ink/60 hover:bg-cafe-espresso/5 hover:text-cafe-espresso'
@@ -319,13 +359,23 @@ export default function App() {
                 title={isMinimized ? item.label : ''}
               >
                 <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-                {!isMinimized && item.label}
+                {(!isMinimized || (isMobileMenuOpen && window.innerWidth < 1024)) && item.label}
               </button>
             );
           })}
         </nav>
 
         <div className={`p-6 border-t border-cafe-ink/10 space-y-4`}>
+          {session?.user?.email === 'muhammadmahardhikadib@gmail.com' && userRole !== 'Manager' && (
+            <button
+              onClick={() => setUserRole('Manager')}
+              className={`w-full flex items-center ${isMinimized ? 'justify-center' : 'gap-4'} px-5 py-3 text-sm font-bold text-cafe-espresso bg-cafe-espresso/10 hover:bg-cafe-espresso/20 transition-all rounded-xl`}
+              title={isMinimized ? 'Kembali ke Manager' : ''}
+            >
+              <User size={18} />
+              {!isMinimized && 'Kembali ke Manager'}
+            </button>
+          )}
           <button
             onClick={async () => {
               await supabase.auth.signOut();
@@ -346,28 +396,48 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative z-10">
-        <header className="h-24 border-b border-cafe-ink/10 flex items-center justify-between px-10 bg-cafe-paper/80 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex flex-col">
-            <h2 className="text-2xl font-serif italic text-cafe-espresso capitalize leading-none">{activeTab.replace('-', ' ')}</h2>
-            <p className="text-[10px] uppercase tracking-widest opacity-40 mt-1.5 font-semibold">Overview & Management</p>
+        {/* Mobile Menu Backdrop */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-cafe-espresso/40 backdrop-blur-sm z-40 lg:hidden"
+            />
+          )}
+        </AnimatePresence>
+        <header className="h-20 lg:h-24 border-b border-cafe-ink/10 flex items-center justify-between px-4 lg:px-10 bg-cafe-paper/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 text-cafe-espresso"
+            >
+              <List size={24} />
+            </button>
+            <div className="flex flex-col">
+              <h2 className="text-lg lg:text-2xl font-serif italic text-cafe-espresso capitalize leading-none">{activeTab.replace('-', ' ')}</h2>
+              <p className="text-[8px] lg:text-[10px] uppercase tracking-widest opacity-40 mt-1 lg:mt-1.5 font-semibold">Overview & Management</p>
+            </div>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 lg:gap-6">
             {egressStatus && egressStatus.warning && (
-              <div className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider animate-pulse border border-rose-200">
+              <div className="hidden sm:flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider animate-pulse border border-rose-200">
                 <RefreshCw size={12} className="animate-spin" />
                 Egress Tinggi: {egressStatus.percentage.toFixed(1)}%
               </div>
             )}
             <button 
               onClick={fetchData}
-              className="p-3 hover:bg-cafe-espresso/5 rounded-full transition-all text-cafe-espresso"
+              className="p-2 lg:p-3 hover:bg-cafe-espresso/5 rounded-full transition-all text-cafe-espresso"
             >
-              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-10">
+        <div className="flex-1 overflow-y-auto p-4 lg:p-10">
           <AnimatePresence mode="wait">
             {activeTab === 'dashboard' && (
               <motion.div 
@@ -495,6 +565,10 @@ export default function App() {
               <PersonalInfoView personalInfo={personalInfo} onUpdate={fetchData} userRole={userRole} />
             )}
 
+            {activeTab === 'employee-data' && (
+              <EmployeeDataView personalInfo={personalInfo} onUpdate={fetchData} userRole={userRole} />
+            )}
+
             {activeTab === 'settings' && (
               <SettingsView 
                 inventory={inventory} 
@@ -506,6 +580,7 @@ export default function App() {
                 setLowStockThreshold={setLowStockThreshold}
                 isEditingThreshold={isEditingThreshold}
                 setIsEditingThreshold={setIsEditingThreshold}
+                userEmail={session?.user?.email}
               />
             )}
           </AnimatePresence>
@@ -535,24 +610,6 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
     });
     setShowAdd(false);
     onUpdate();
-  };
-
-  const handleUpdateStock = async (id: number, newQty: number) => {
-    await fetch(`/api/inventory/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quantity: newQty })
-    });
-    onUpdate();
-  };
-
-  const handleAdjustStock = async (id: number, currentQty: number, type: 'add' | 'sub') => {
-    const amount = prompt(`Masukkan jumlah untuk ${type === 'add' ? 'ditambah' : 'dikurang'}:`);
-    if (amount && !isNaN(parseFloat(amount))) {
-      const val = parseFloat(amount);
-      const newQty = type === 'add' ? currentQty + val : Math.max(0, currentQty - val);
-      await handleUpdateStock(id, newQty);
-    }
   };
 
   const handleEditItem = async (e: React.FormEvent) => {
@@ -687,8 +744,8 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
         </motion.form>
       )}
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
@@ -718,20 +775,6 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
                     <div className="flex justify-end gap-2">
                       {userRole !== 'Admin' && (
                         <>
-                          <button 
-                            onClick={() => handleAdjustStock(item.id, item.quantity, 'add')}
-                            className="p-2 rounded-lg border border-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
-                            title="Tambah Stok"
-                          >
-                            <Plus size={16} />
-                          </button>
-                          <button 
-                            onClick={() => handleAdjustStock(item.id, item.quantity, 'sub')}
-                            className="p-2 rounded-lg border border-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white transition-all"
-                            title="Kurang Stok"
-                          >
-                            <Minus size={16} />
-                          </button>
                           <button 
                             onClick={() => setEditingItem(item)}
                             className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
@@ -940,8 +983,8 @@ function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEnt
         </motion.form>
       )}
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
@@ -1068,8 +1111,8 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
         </motion.form>
       )}
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Kode</th>
@@ -1116,7 +1159,7 @@ function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal:
         <div className="text-[10px] uppercase tracking-[0.2em] opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">Periode: {new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' })}</div>
       </div>
 
-      <div className="max-w-3xl mx-auto bg-white border border-cafe-ink/5 p-16 rounded-[2rem] shadow-2xl relative overflow-hidden">
+      <div className="max-w-3xl mx-auto bg-white border border-cafe-ink/5 p-6 md:p-16 rounded-[2rem] shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-cafe-espresso"></div>
         
         <div className="text-center mb-16">
@@ -1273,8 +1316,8 @@ function AssetsView({ assets, onUpdate, calculateDepreciation, userRole }: {
         </motion.form>
       )}
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Aset</th>
@@ -1437,13 +1480,13 @@ function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory:
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white border border-cafe-ink/5 rounded-3xl shadow-xl overflow-hidden">
-            <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center">
+          <div className="bg-white border border-cafe-ink/5 rounded-3xl shadow-xl overflow-hidden overflow-x-auto">
+            <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center min-w-[600px]">
               <h3 className="text-lg font-bold text-cafe-espresso">Riwayat Pembelian</h3>
               <span className="text-[10px] uppercase tracking-widest opacity-50 font-bold">{purchases.length} Transaksi</span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead>
                   <tr className="bg-cafe-cream/10 border-b border-cafe-ink/5">
                     <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
@@ -1589,7 +1632,7 @@ function SaleView({ menus, onUpdate, userRole }: { menus: Menu[], onUpdate: () =
         />
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-10 rounded-3xl shadow-xl space-y-8">
+      <form onSubmit={handleSubmit} className="bg-white border border-cafe-ink/5 p-6 md:p-10 rounded-3xl shadow-xl space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal</label>
@@ -1921,7 +1964,7 @@ function MenuView({ inventory, menus, onUpdate, userRole }: { inventory: Invento
         {/* Ingredients / Takaran */}
         <div className="lg:col-span-2 space-y-6">
           {selectedMenu ? (
-            <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-8">
+            <div className="bg-white border border-cafe-ink/5 p-6 md:p-8 rounded-3xl shadow-sm space-y-8">
               <div className="flex justify-between items-center border-b border-cafe-ink/5 pb-4">
                 <div>
                   <h4 className="text-2xl font-serif italic text-cafe-espresso">{selectedMenu.name}</h4>
@@ -2033,7 +2076,8 @@ function SettingsView({
   lowStockThreshold, 
   setLowStockThreshold,
   isEditingThreshold,
-  setIsEditingThreshold
+  setIsEditingThreshold,
+  userEmail
 }: { 
   inventory: InventoryItem[], 
   units: Unit[], 
@@ -2043,7 +2087,8 @@ function SettingsView({
   lowStockThreshold: number, 
   setLowStockThreshold: (val: number) => void,
   isEditingThreshold: boolean,
-  setIsEditingThreshold: (val: boolean) => void
+  setIsEditingThreshold: (val: boolean) => void,
+  userEmail?: string
 }) {
   const [newUnit, setNewUnit] = useState('');
 
@@ -2074,15 +2119,15 @@ function SettingsView({
   return (
     <div className="space-y-8">
       <div className="max-w-2xl mx-auto space-y-8">
-        {/* Role Settings - Only for Managers */}
-        {userRole === 'Manager' && (
+        {/* Role Settings - Only for Managers or the specific user */}
+        {(userRole === 'Manager' || userEmail === 'muhammadmahardhikadib@gmail.com') && (
           <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
             <div className="flex items-center gap-3">
               <User className="text-cafe-espresso" size={20} />
               <h4 className="text-lg font-bold text-cafe-espresso">Pengaturan Role</h4>
             </div>
             <p className="text-xs text-cafe-ink/60 leading-relaxed">
-              Pilih role Anda untuk mengakses fitur yang sesuai. (Hanya Manager yang dapat mengubah role).
+              Pilih role Anda untuk mengakses fitur yang sesuai. {userEmail === 'muhammadmahardhikadib@gmail.com' ? '(Anda memiliki akses khusus untuk mengubah role kapan saja).' : '(Hanya Manager yang dapat mengubah role).'}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {(['Manager', 'Admin', 'Inventory', 'Finance', 'Staff'] as UserRole[]).map((role) => (
@@ -2291,11 +2336,11 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
         </div>
       </div>
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-6 border-b border-cafe-ink/5 bg-cafe-cream/10">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <div className="p-6 border-b border-cafe-ink/5 bg-cafe-cream/10 min-w-[600px]">
           <h4 className="font-serif italic text-lg text-cafe-espresso">Rekapitulasi Jurnal</h4>
         </div>
-        <table className="w-full text-left border-collapse">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Akun / Metode</th>
@@ -2509,8 +2554,8 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
             </div>
           </div>
 
-          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="bg-cafe-cream/5 border-b border-cafe-ink/5">
                   <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
@@ -2626,8 +2671,8 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
             </div>
           </div>
 
-          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="bg-cafe-cream/10 border-b border-cafe-ink/5">
                   <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
@@ -2679,8 +2724,8 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
         </button>
       </div>
 
-      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">No Reference</th>
@@ -2787,8 +2832,8 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
                   </div>
                 </div>
 
-                <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm">
-                  <table className="w-full text-left border-collapse">
+                <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[600px]">
                     <thead>
                       <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
                         <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Produk</th>
@@ -2838,11 +2883,12 @@ function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }:
   );
 }
 
-function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: PersonalInformation[], onUpdate: () => void, userRole: UserRole }) {
+function EmployeeDataView({ personalInfo, onUpdate, userRole }: { personalInfo: PersonalInformation[], onUpdate: () => void, userRole: UserRole }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState<PersonalInformation | null>(null);
   const [formData, setFormData] = useState({
     full_name: '',
+    email: '',
     address: '',
     birth_info: '',
     ktp_number: '',
@@ -2850,9 +2896,6 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
     join_date: new Date().toISOString().split('T')[0],
     role: 'Staff'
   });
-
-  // Filter to only show records matching the current role (simulating "only me")
-  const myInfo = personalInfo.filter(item => item.role === userRole);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2870,6 +2913,7 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
       setEditingItem(null);
       setFormData({
         full_name: '',
+        email: '',
         address: '',
         birth_info: '',
         ktp_number: '',
@@ -2888,6 +2932,270 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
     setEditingItem(item);
     setFormData({
       full_name: item.full_name,
+      email: item.email || '',
+      address: item.address,
+      birth_info: item.birth_info,
+      ktp_number: item.ktp_number,
+      phone_number: item.phone_number,
+      join_date: item.join_date,
+      role: item.role
+    });
+    setShowAdd(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Hapus data karyawan ini?')) return;
+    const res = await fetch(`/api/personal-info/${id}`, { method: 'DELETE' });
+    if (res.ok) onUpdate();
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Data Karyawan</h3>
+        {userRole === 'Manager' && (
+          <button 
+            onClick={() => {
+              setEditingItem(null);
+              setFormData({
+                full_name: '',
+                email: '',
+                address: '',
+                birth_info: '',
+                ktp_number: '',
+                phone_number: '',
+                join_date: new Date().toISOString().split('T')[0],
+                role: 'Staff'
+              });
+              setShowAdd(true);
+            }}
+            className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+          >
+            <Plus size={18} /> Tambah Karyawan
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm"
+          >
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Lengkap</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.full_name}
+                  onChange={e => setFormData({...formData, full_name: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Email</label>
+                <input 
+                  required
+                  type="email"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tempat Tanggal Lahir</label>
+                <input 
+                  required
+                  placeholder="Contoh: Jakarta, 01-01-1990"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.birth_info}
+                  onChange={e => setFormData({...formData, birth_info: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Alamat</label>
+                <textarea 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors min-h-[80px]"
+                  value={formData.address}
+                  onChange={e => setFormData({...formData, address: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">No KTP</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.ktp_number}
+                  onChange={e => setFormData({...formData, ktp_number: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nomor Handphone</label>
+                <input 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={formData.phone_number}
+                  onChange={e => setFormData({...formData, phone_number: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Tanggal Masuk</label>
+                <input 
+                  type="date"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.join_date}
+                  onChange={e => setFormData({...formData, join_date: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Role</label>
+                <select 
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                  value={formData.role}
+                  onChange={e => setFormData({...formData, role: e.target.value})}
+                  disabled={userRole !== 'Manager'}
+                >
+                  <option value="Manager">Manager</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Inventory">Inventory</option>
+                  <option value="Finance">Finance</option>
+                  <option value="Staff">Staff</option>
+                </select>
+              </div>
+              <div className="flex items-end gap-3 md:col-span-2">
+                <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold shadow-lg shadow-cafe-espresso/20">
+                  {editingItem ? 'Update Karyawan' : 'Simpan Karyawan'}
+                </button>
+                <button type="button" onClick={() => { setShowAdd(false); setEditingItem(null); }} className="px-8 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5 transition-colors">
+                  Batal
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[800px]">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Nama</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Email</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">TTL</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Alamat</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Handphone</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal Masuk</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Role</th>
+              {userRole === 'Manager' && <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {personalInfo.length === 0 ? (
+              <tr>
+                <td colSpan={userRole === 'Manager' ? 7 : 6} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data karyawan.</td>
+              </tr>
+            ) : (
+              personalInfo.map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.full_name}</td>
+                  <td className="p-6 text-sm">{item.email}</td>
+                  <td className="p-6 text-sm">{item.birth_info}</td>
+                  <td className="p-6 text-sm opacity-70 max-w-xs truncate" title={item.address}>{item.address}</td>
+                  <td className="p-6 text-sm font-mono">{item.phone_number}</td>
+                  <td className="p-6 text-sm">{item.join_date}</td>
+                  <td className="p-6 text-sm">
+                    <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-1 bg-cafe-espresso/5 text-cafe-espresso rounded">
+                      {item.role}
+                    </span>
+                  </td>
+                  {userRole === 'Manager' && (
+                    <td className="p-6 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => handleEdit(item)}
+                          className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                          title="Edit"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(item.id)}
+                          className="p-2 rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white transition-all"
+                          title="Hapus"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: PersonalInformation[], onUpdate: () => void, userRole: UserRole }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState<PersonalInformation | null>(null);
+  const [formData, setFormData] = useState({
+    full_name: '',
+    email: '',
+    address: '',
+    birth_info: '',
+    ktp_number: '',
+    phone_number: '',
+    join_date: new Date().toISOString().split('T')[0],
+    role: 'Staff'
+  });
+
+  // Filter to only show records matching the current user's email if possible, or role as fallback
+  // In a real app, we'd filter by the logged-in user's email.
+  const myInfo = personalInfo.filter(item => item.role === userRole);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = editingItem ? `/api/personal-info/${editingItem.id}` : '/api/personal-info';
+    const method = editingItem ? 'PUT' : 'POST';
+    
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    });
+
+    if (res.ok) {
+      setShowAdd(false);
+      setEditingItem(null);
+      setFormData({
+        full_name: '',
+        email: '',
+        address: '',
+        birth_info: '',
+        ktp_number: '',
+        phone_number: '',
+        join_date: new Date().toISOString().split('T')[0],
+        role: 'Staff'
+      });
+      onUpdate();
+    } else {
+      const error = await res.json();
+      alert('Gagal menyimpan data: ' + (error.error || 'Unknown error'));
+    }
+  };
+
+  const handleEdit = (item: PersonalInformation) => {
+    setEditingItem(item);
+    setFormData({
+      full_name: item.full_name,
+      email: item.email || '',
       address: item.address,
       birth_info: item.birth_info,
       ktp_number: item.ktp_number,
@@ -2916,6 +3224,7 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
               setEditingItem(null);
               setFormData({
                 full_name: '',
+                email: '',
                 address: '',
                 birth_info: '',
                 ktp_number: '',
@@ -2949,6 +3258,16 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
                   className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
                   value={formData.full_name}
                   onChange={e => setFormData({...formData, full_name: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Email</label>
+                <input 
+                  required
+                  type="email"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
                 />
               </div>
               <div className="space-y-2">
@@ -3066,6 +3385,13 @@ function PersonalInfoView({ personalInfo, onUpdate, userRole }: { personalInfo: 
               </div>
 
               <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 opacity-40"><Mail size={12} /></div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 font-bold">Email</p>
+                    <p className="text-xs">{item.email}</p>
+                  </div>
+                </div>
                 <div className="flex items-start gap-3">
                   <div className="mt-1 opacity-40"><HardDrive size={12} /></div>
                   <div>

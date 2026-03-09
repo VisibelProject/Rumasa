@@ -616,11 +616,26 @@ async function startServer() {
     res.json(data);
   });
 
-  app.post("/api/personal-info", async (req, res) => {
-    const { full_name, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
+  app.get("/api/personal-info/check-email/:email", async (req, res) => {
+    const { email } = req.params;
     const { data, error } = await supabase
       .from("personal_info")
-      .insert([{ full_name, address, birth_info, ktp_number, phone_number, join_date, role }])
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+    
+    if (error) {
+      console.error("Supabase error in GET /api/personal-info/check-email:", error);
+      return res.status(500).json({ error: error.message });
+    }
+    res.json({ exists: !!data });
+  });
+
+  app.post("/api/personal-info", async (req, res) => {
+    const { full_name, email, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
+    const { data, error } = await supabase
+      .from("personal_info")
+      .insert([{ full_name, email, address, birth_info, ktp_number, phone_number, join_date, role }])
       .select();
     
     if (error) return res.status(500).json({ error: error.message });
@@ -628,10 +643,10 @@ async function startServer() {
   });
 
   app.put("/api/personal-info/:id", async (req, res) => {
-    const { full_name, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
+    const { full_name, email, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
     const { data, error } = await supabase
       .from("personal_info")
-      .update({ full_name, address, birth_info, ktp_number, phone_number, join_date, role })
+      .update({ full_name, email, address, birth_info, ktp_number, phone_number, join_date, role })
       .eq("id", req.params.id)
       .select();
     

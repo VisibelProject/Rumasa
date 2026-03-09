@@ -45,6 +45,14 @@ export default function Login({ onLogin }: LoginProps) {
       }
 
       if (mode === 'signup') {
+        // Check if email exists in personal_info (employee data)
+        const checkRes = await fetch(`/api/personal-info/check-email/${encodeURIComponent(email)}`);
+        const { exists } = await checkRes.json();
+
+        if (!exists) {
+          throw new Error('Email tidak terdaftar mohon hubungi admin');
+        }
+
         const { error } = await supabase.auth.signUp({
           email,
           password,
