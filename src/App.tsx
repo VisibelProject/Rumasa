@@ -122,8 +122,25 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated) {
       fetchData();
+      checkSupabaseStatus();
     }
   }, [isAuthenticated]);
+
+  const [supabaseStatus, setSupabaseStatus] = useState<any>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+
+  const checkSupabaseStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const res = await fetch('/api/supabase-status');
+      const data = await res.json();
+      setSupabaseStatus(data);
+    } catch (err) {
+      setSupabaseStatus({ error: 'Gagal menghubungi API status' });
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -462,6 +479,47 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-10"
               >
+                {supabaseStatus && supabaseStatus.connectionTest !== 'Successful' && (
+                  <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl flex items-start gap-4 shadow-sm">
+                    <div className="p-2 bg-rose-100 rounded-lg text-rose-600">
+                      <HardDrive size={24} />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-rose-800">Masalah Koneksi Database</h4>
+                      <p className="text-xs text-rose-600 mt-1 leading-relaxed">
+                        Aplikasi tidak dapat terhubung ke Supabase. Dashboard menampilkan angka 0 karena data tidak dapat diambil. 
+                        Pastikan <strong>VITE_SUPABASE_URL</strong> dan <strong>VITE_SUPABASE_ANON_KEY</strong> sudah diatur dengan benar di panel Settings &gt; Secrets.
+                      </p>
+                      <button 
+                        onClick={() => setActiveTab('settings')}
+                        className="mt-3 text-xs font-bold text-rose-700 hover:underline"
+                      >
+                        Periksa Pengaturan &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {supabaseStatus && supabaseStatus.connectionTest === 'Successful' && !supabaseStatus.hasServiceKey && (
+                  <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl flex items-start gap-4 shadow-sm">
+                    <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
+                      <Settings size={24} />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-amber-800">Peringatan: Service Role Key Tidak Ditemukan</h4>
+                      <p className="text-xs text-amber-600 mt-1 leading-relaxed">
+                        Aplikasi terhubung menggunakan Anon Key. Jika Anda mengaktifkan <strong>Row Level Security (RLS)</strong> di Supabase, data mungkin tidak akan muncul (angka 0) kecuali Anda menambahkan <strong>SUPABASE_SERVICE_ROLE_KEY</strong> di panel Settings &gt; Secrets.
+                      </p>
+                      <button 
+                        onClick={() => setActiveTab('settings')}
+                        className="mt-3 text-xs font-bold text-amber-700 hover:underline"
+                      >
+                        Pelajari Selengkapnya &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-[11px] uppercase tracking-[0.15em] text-cafe-latte font-bold mb-4">Total Pendapatan</p>
@@ -596,6 +654,9 @@ export default function App() {
                 isEditingThreshold={isEditingThreshold}
                 setIsEditingThreshold={setIsEditingThreshold}
                 userEmail={session?.user?.email}
+                supabaseStatus={supabaseStatus}
+                checkingStatus={checkingStatus}
+                onCheckStatus={checkSupabaseStatus}
               />
             )}
           </AnimatePresence>
@@ -2092,7 +2153,10 @@ function SettingsView({
   setLowStockThreshold,
   isEditingThreshold,
   setIsEditingThreshold,
-  userEmail
+  userEmail,
+  supabaseStatus,
+  checkingStatus,
+  onCheckStatus
 }: { 
   inventory: InventoryItem[], 
   units: Unit[], 
@@ -2103,28 +2167,12 @@ function SettingsView({
   setLowStockThreshold: (val: number) => void,
   isEditingThreshold: boolean,
   setIsEditingThreshold: (val: boolean) => void,
-  userEmail?: string
+  userEmail?: string,
+  supabaseStatus: any,
+  checkingStatus: boolean,
+  onCheckStatus: () => void
 }) {
   const [newUnit, setNewUnit] = useState('');
-  const [supabaseStatus, setSupabaseStatus] = useState<any>(null);
-  const [checkingStatus, setCheckingStatus] = useState(false);
-
-  const checkSupabaseStatus = async () => {
-    setCheckingStatus(true);
-    try {
-      const res = await fetch('/api/supabase-status');
-      const data = await res.json();
-      setSupabaseStatus(data);
-    } catch (err) {
-      console.error('Failed to check Supabase status:', err);
-    } finally {
-      setCheckingStatus(false);
-    }
-  };
-
-  useEffect(() => {
-    checkSupabaseStatus();
-  }, []);
 
   const handleAddUnit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2162,7 +2210,7 @@ function SettingsView({
                 <h4 className="text-lg font-bold text-cafe-espresso">Status Supabase</h4>
               </div>
               <button 
-                onClick={checkSupabaseStatus}
+                onClick={onCheckStatus}
                 disabled={checkingStatus}
                 className="p-2 hover:bg-cafe-espresso/5 rounded-lg text-cafe-espresso transition-all disabled:opacity-50"
                 title="Refresh Status"
