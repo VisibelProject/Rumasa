@@ -18,29 +18,29 @@ console.log("- VERCEL:", process.env.VERCEL);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Supabase Client
-const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
-const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+// Supabase Client Helper
+const getSupabaseClient = () => {
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  const key = serviceKey || anonKey || "";
 
-console.log("Supabase Configuration:");
-console.log("- URL:", supabaseUrl ? "Present" : "MISSING");
-console.log("- Service Role Key:", supabaseServiceKey ? "Present" : "MISSING");
-console.log("- Anon Key:", supabaseAnonKey ? "Present" : "MISSING");
+  if (!url || !key) {
+    return null;
+  }
 
-const supabaseKey = supabaseServiceKey || supabaseAnonKey || "";
-console.log("- Using Key Type:", supabaseServiceKey ? "SERVICE_ROLE (Bypasses RLS)" : (supabaseAnonKey ? "ANON (Subject to RLS)" : "NONE"));
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error("CRITICAL: SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+  return createClient(url, key);
+};
 
 // Test Supabase connection on startup
 (async () => {
   try {
-    const { data, error } = await supabase.from("inventory").select("id").limit(1);
+    const client = getSupabaseClient();
+    if (!client) {
+      console.error("CRITICAL: SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
+      return;
+    }
+    const { data, error } = await client.from("inventory").select("id").limit(1);
     if (error) {
       console.error("Supabase connection test failed:", error.message);
     } else {
@@ -91,6 +91,42 @@ async function startServer() {
   });
 
   // API Routes
+  app.get("/api/supabase-status", async (req, res) => {
+    const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+    const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+    
+    const client = getSupabaseClient();
+    let connectionTest = "Not tested";
+    let errorDetails = null;
+
+    if (client) {
+      try {
+        const { error } = await client.from("inventory").select("id").limit(1);
+        if (error) {
+          connectionTest = "Failed";
+          errorDetails = error.message;
+        } else {
+          connectionTest = "Successful";
+        }
+      } catch (err: any) {
+        connectionTest = "Error";
+        errorDetails = err.message;
+      }
+    } else {
+      connectionTest = "Missing Configuration";
+    }
+
+    res.json({
+      configured: !!client,
+      url: url ? `${url.substring(0, 15)}...` : "Missing",
+      hasServiceKey: !!serviceKey,
+      hasAnonKey: !!anonKey,
+      connectionTest,
+      errorDetails
+    });
+  });
+
   app.get("/api/egress-status", (req, res) => {
     res.json({
       usage: monthlyEgressBytes,
@@ -101,7 +137,9 @@ async function startServer() {
   });
 
   app.get("/api/coa", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("coa")
       .select("*")
       .order("code", { ascending: true });
@@ -114,8 +152,10 @@ async function startServer() {
   });
 
   app.post("/api/coa", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { code, name, category } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("coa")
       .insert([{ code, name, category }])
       .select();
@@ -125,7 +165,9 @@ async function startServer() {
   });
 
   app.delete("/api/coa/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("coa")
       .delete()
       .eq("id", req.params.id);
@@ -135,7 +177,9 @@ async function startServer() {
   });
 
   app.get("/api/stock-opname", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("stock_opname")
       .select("*")
       .order("date", { ascending: false });
@@ -148,8 +192,10 @@ async function startServer() {
   });
 
   app.post("/api/stock-opname", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { reference_no, date, type, status, description, items } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("stock_opname")
       .insert([{ reference_no, date, type, status: status || 'Pending', description, items }])
       .select();
@@ -159,8 +205,10 @@ async function startServer() {
   });
 
   app.put("/api/stock-opname/:id/status", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { status } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("stock_opname")
       .update({ status })
       .eq("id", req.params.id)
@@ -201,7 +249,9 @@ async function startServer() {
   });
 
   app.get("/api/inventory", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("inventory")
       .select("*")
       .order("name", { ascending: true });
@@ -214,8 +264,10 @@ async function startServer() {
   });
 
   app.post("/api/inventory", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { name, unit, quantity, cost_per_unit } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("inventory")
       .insert([{ name, unit, quantity, cost_per_unit }])
       .select();
@@ -225,6 +277,8 @@ async function startServer() {
   });
 
   app.put("/api/inventory/:id", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { name, unit, quantity, cost_per_unit } = req.body;
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
@@ -232,7 +286,7 @@ async function startServer() {
     if (quantity !== undefined) updateData.quantity = quantity;
     if (cost_per_unit !== undefined) updateData.cost_per_unit = cost_per_unit;
 
-    const { error } = await supabase
+    const { error } = await client
       .from("inventory")
       .update(updateData)
       .eq("id", req.params.id);
@@ -242,7 +296,9 @@ async function startServer() {
   });
 
   app.delete("/api/inventory/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("inventory")
       .delete()
       .eq("id", req.params.id);
@@ -252,7 +308,9 @@ async function startServer() {
   });
 
   app.get("/api/journal", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("journal")
       .select("*")
       .order("date", { ascending: false })
@@ -266,8 +324,10 @@ async function startServer() {
   });
 
   app.post("/api/journal", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { date, description, account, debit, credit, category, payment_method } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("journal")
       .insert([{ date, description, account, debit, credit, category, payment_method }])
       .select();
@@ -286,7 +346,9 @@ async function startServer() {
 
   app.get("/api/reports/worksheet", async (req, res) => {
     try {
-      const { data, error } = await supabase
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
+      const { data, error } = await client
         .from("journal")
         .select("*")
         .order("date", { ascending: true });
@@ -328,7 +390,9 @@ async function startServer() {
   });
 
   app.delete("/api/journal/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("journal")
       .delete()
       .eq("id", req.params.id);
@@ -338,7 +402,9 @@ async function startServer() {
   });
 
   app.get("/api/assets", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("assets")
       .select("*");
     
@@ -350,8 +416,10 @@ async function startServer() {
   });
 
   app.post("/api/assets", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { name, type, purchase_date, purchase_price, lifespan_years } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("assets")
       .insert([{ name, type, purchase_date, purchase_price, lifespan_years }])
       .select();
@@ -361,7 +429,9 @@ async function startServer() {
   });
 
   app.delete("/api/assets/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("assets")
       .delete()
       .eq("id", req.params.id);
@@ -371,12 +441,14 @@ async function startServer() {
   });
 
   app.get("/api/reports/profit-loss", async (req, res) => {
-    const { data: incomeData, error: incomeError } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data: incomeData, error: incomeError } = await client
       .from("journal")
       .select("credit")
       .eq("category", "Income");
     
-    const { data: expenseData, error: expenseError } = await supabase
+    const { data: expenseData, error: expenseError } = await client
       .from("journal")
       .select("debit")
       .eq("category", "Expense");
@@ -394,14 +466,16 @@ async function startServer() {
 
   app.get("/api/menus", async (req, res) => {
     try {
-      const { data: menus, error: menusError } = await supabase
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
+      const { data: menus, error: menusError } = await client
         .from("menus")
         .select("*")
         .order("name", { ascending: true });
       
       if (menusError) throw menusError;
 
-      const { data: ingredients, error: ingError } = await supabase
+      const { data: ingredients, error: ingError } = await client
         .from("menu_ingredients")
         .select(`
           menu_id,
@@ -432,8 +506,10 @@ async function startServer() {
   });
 
   app.post("/api/menus", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { name, price } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("menus")
       .insert([{ name, price: price || 0 }])
       .select();
@@ -446,8 +522,10 @@ async function startServer() {
   });
 
   app.put("/api/menus/:id", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { name, price } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("menus")
       .update({ name, price })
       .eq("id", req.params.id)
@@ -458,7 +536,9 @@ async function startServer() {
   });
 
   app.delete("/api/menus/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("menus")
       .delete()
       .eq("id", req.params.id);
@@ -468,7 +548,9 @@ async function startServer() {
   });
 
   app.get("/api/menus/:menuId/ingredients", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("menu_ingredients")
       .select(`
         *,
@@ -488,8 +570,10 @@ async function startServer() {
   });
 
   app.post("/api/menu-ingredients", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { menu_id, inventory_id, quantity } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("menu_ingredients")
       .insert([{ menu_id, inventory_id, quantity }])
       .select();
@@ -499,7 +583,9 @@ async function startServer() {
   });
 
   app.delete("/api/menu-ingredients/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("menu_ingredients")
       .delete()
       .eq("id", req.params.id);
@@ -594,7 +680,9 @@ async function startServer() {
   });
 
   app.delete("/api/units/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("units")
       .delete()
       .eq("id", req.params.id);
@@ -604,7 +692,9 @@ async function startServer() {
   });
 
   app.get("/api/personal-info", async (req, res) => {
-    const { data, error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await client
       .from("personal_info")
       .select("*")
       .order("id", { ascending: true });
@@ -617,8 +707,10 @@ async function startServer() {
   });
 
   app.get("/api/personal-info/check-email/:email", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { email } = req.params;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("personal_info")
       .select("id")
       .eq("email", email)
@@ -632,8 +724,10 @@ async function startServer() {
   });
 
   app.post("/api/personal-info", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { full_name, email, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("personal_info")
       .insert([{ full_name, email, address, birth_info, ktp_number, phone_number, join_date, role }])
       .select();
@@ -643,8 +737,10 @@ async function startServer() {
   });
 
   app.put("/api/personal-info/:id", async (req, res) => {
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
     const { full_name, email, address, birth_info, ktp_number, phone_number, join_date, role } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from("personal_info")
       .update({ full_name, email, address, birth_info, ktp_number, phone_number, join_date, role })
       .eq("id", req.params.id)
@@ -655,7 +751,9 @@ async function startServer() {
   });
 
   app.delete("/api/personal-info/:id", async (req, res) => {
-    const { error } = await supabase
+    const client = getSupabaseClient();
+    if (!client) return res.status(500).json({ error: "Supabase not configured" });
+    const { error } = await client
       .from("personal_info")
       .delete()
       .eq("id", req.params.id);
@@ -666,7 +764,9 @@ async function startServer() {
 
   app.get("/api/purchases", async (req, res) => {
     try {
-      const { data, error } = await supabase
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
+      const { data, error } = await client
         .from("purchases")
         .select("*")
         .order("date", { ascending: false });
@@ -677,7 +777,7 @@ async function startServer() {
       }
       
       // Fetch inventory names separately to be safe if join fails
-      const { data: invData } = await supabase.from("inventory").select("id, name");
+      const { data: invData } = await client.from("inventory").select("id, name");
       const invMap = (invData || []).reduce((acc: any, item: any) => {
         acc[item.id] = item.name;
         return acc;
@@ -700,17 +800,19 @@ async function startServer() {
     const invId = parseInt(inventory_id);
     
     try {
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
       if (isNaN(invId)) throw new Error("Invalid Inventory ID");
 
       // 1. Get current quantity
-      const { data: inv, error: invError } = await supabase.from("inventory").select("quantity").eq("id", invId).single();
+      const { data: inv, error: invError } = await client.from("inventory").select("quantity").eq("id", invId).single();
       if (invError) throw new Error(invError.message);
       
       const newQty = (inv?.quantity || 0) + quantity;
 
       // 2. Update Inventory
       const costPerUnit = total_cost / quantity;
-      const { error: updateError } = await supabase
+      const { error: updateError } = await client
         .from("inventory")
         .update({ 
           quantity: newQty,
@@ -721,11 +823,11 @@ async function startServer() {
       if (updateError) throw new Error(updateError.message);
       
       // 3. Add Journal Entry
-      const { error: journalError } = await supabase.from("journal").insert([{ date, description, debit: total_cost, credit: 0, category: "Expense" }]);
+      const { error: journalError } = await client.from("journal").insert([{ date, description, debit: total_cost, credit: 0, category: "Expense" }]);
       if (journalError) throw new Error(journalError.message);
 
       // 4. Add Purchase Record
-      const { error: purchaseError } = await supabase.from("purchases").insert([{ 
+      const { error: purchaseError } = await client.from("purchases").insert([{ 
         inventory_id: invId, 
         quantity, 
         total_cost, 
@@ -747,8 +849,10 @@ async function startServer() {
 
   app.delete("/api/purchases/:id", async (req, res) => {
     try {
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
       // 1. Get purchase details
-      const { data: purchase, error: fetchError } = await supabase
+      const { data: purchase, error: fetchError } = await client
         .from("purchases")
         .select("*")
         .eq("id", req.params.id)
@@ -757,12 +861,12 @@ async function startServer() {
       if (fetchError || !purchase) throw new Error("Purchase not found");
 
       // 2. Reverse inventory
-      const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", purchase.inventory_id).single();
+      const { data: inv } = await client.from("inventory").select("quantity").eq("id", purchase.inventory_id).single();
       const newQty = (inv?.quantity || 0) - purchase.quantity;
-      await supabase.from("inventory").update({ quantity: newQty }).eq("id", purchase.inventory_id);
+      await client.from("inventory").update({ quantity: newQty }).eq("id", purchase.inventory_id);
 
       // 3. Delete matching journal entry
-      await supabase.from("journal")
+      await client.from("journal")
         .delete()
         .eq("date", purchase.date)
         .eq("description", purchase.description)
@@ -770,7 +874,7 @@ async function startServer() {
         .eq("category", "Expense");
 
       // 4. Delete purchase record
-      const { error: deleteError } = await supabase.from("purchases").delete().eq("id", req.params.id);
+      const { error: deleteError } = await client.from("purchases").delete().eq("id", req.params.id);
       if (deleteError) throw deleteError;
 
       res.json({ success: true });
@@ -783,10 +887,12 @@ async function startServer() {
     const { amount, date, description, items_sold, menu_id, payment_method } = req.body;
     
     try {
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
       // 1. Add Journal Entry
       // Note: For Income, debit: 0, credit: amount. 
       // The 'payment_method' (Kas/Bank) will be stored in the 'payment_method' column of the journal.
-      const { error: journalError } = await supabase.from("journal").insert([{ 
+      const { error: journalError } = await client.from("journal").insert([{ 
         date, 
         description, 
         debit: 0, 
@@ -803,7 +909,7 @@ async function startServer() {
       // 2. Deduct Inventory
       if (menu_id) {
         // Deduct based on specific menu ingredients
-        const { data: ingredients, error: ingError } = await supabase
+        const { data: ingredients, error: ingError } = await client
           .from("menu_ingredients")
           .select("*")
           .eq("menu_id", menu_id);
@@ -813,11 +919,11 @@ async function startServer() {
         } else if (ingredients) {
           for (const ingredient of ingredients) {
             const totalDeduction = ingredient.quantity * items_sold;
-            const { data: inv, error: invFetchError } = await supabase.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
+            const { data: inv, error: invFetchError } = await client.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
             
             if (!invFetchError && inv) {
               const newQty = (inv.quantity || 0) - totalDeduction;
-              await supabase.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
+              await client.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
             }
           }
         }
@@ -855,7 +961,9 @@ async function startServer() {
 
   app.get("/api/transactions/sale/export", async (req, res) => {
     try {
-      const { data, error } = await supabase
+      const client = getSupabaseClient();
+      if (!client) return res.status(500).json({ error: "Supabase not configured" });
+      const { data, error } = await client
         .from("journal")
         .select("*")
         .eq("category", "Income")
@@ -905,7 +1013,9 @@ async function startServer() {
 
         // Reuse the sale logic
         // 1. Add Journal Entry
-        const { error: journalError } = await supabase.from("journal").insert([{ 
+        const client = getSupabaseClient();
+        if (!client) throw new Error("Supabase not configured");
+        const { error: journalError } = await client.from("journal").insert([{ 
           date, 
           description, 
           debit: 0, 
@@ -918,7 +1028,7 @@ async function startServer() {
 
         // 2. Deduct Inventory if menu_id provided
         if (menu_id) {
-          const { data: ingredients, error: ingError } = await supabase
+          const { data: ingredients, error: ingError } = await client
             .from("menu_ingredients")
             .select("*")
             .eq("menu_id", menu_id);
@@ -926,10 +1036,10 @@ async function startServer() {
           if (!ingError && ingredients) {
             for (const ingredient of ingredients) {
               const totalDeduction = ingredient.quantity * items_sold;
-              const { data: inv } = await supabase.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
+              const { data: inv } = await client.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
               if (inv) {
                 const newQty = (inv.quantity || 0) - totalDeduction;
-                await supabase.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
+                await client.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
               }
             }
           }

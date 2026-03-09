@@ -33,7 +33,8 @@ import {
   Download,
   LogOut,
   User,
-  Mail
+  Mail,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole, PersonalInformation } from './types';
@@ -2091,6 +2092,25 @@ function SettingsView({
   userEmail?: string
 }) {
   const [newUnit, setNewUnit] = useState('');
+  const [supabaseStatus, setSupabaseStatus] = useState<any>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+
+  const checkSupabaseStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const res = await fetch('/api/supabase-status');
+      const data = await res.json();
+      setSupabaseStatus(data);
+    } catch (err) {
+      console.error('Failed to check Supabase status:', err);
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    checkSupabaseStatus();
+  }, []);
 
   const handleAddUnit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2119,6 +2139,69 @@ function SettingsView({
   return (
     <div className="space-y-8">
       <div className="max-w-2xl mx-auto space-y-8">
+        {/* Supabase Status - Only for Managers or Admins */}
+        {(userRole === 'Manager' || userRole === 'Admin') && (
+          <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <HardDrive className="text-cafe-espresso" size={20} />
+                <h4 className="text-lg font-bold text-cafe-espresso">Status Supabase</h4>
+              </div>
+              <button 
+                onClick={checkSupabaseStatus}
+                disabled={checkingStatus}
+                className="p-2 hover:bg-cafe-espresso/5 rounded-lg text-cafe-espresso transition-all disabled:opacity-50"
+                title="Refresh Status"
+              >
+                <RefreshCw size={18} className={checkingStatus ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            
+            {supabaseStatus ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
+                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Koneksi</p>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${supabaseStatus.connectionTest === 'Successful' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                      <p className={`text-sm font-bold ${supabaseStatus.connectionTest === 'Successful' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {supabaseStatus.connectionTest}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
+                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Service Role Key</p>
+                    <p className={`text-sm font-bold ${supabaseStatus.hasServiceKey ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {supabaseStatus.hasServiceKey ? 'Terdeteksi' : 'Tidak Ada (Gunakan Anon)'}
+                    </p>
+                  </div>
+                </div>
+
+                {supabaseStatus.errorDetails && (
+                  <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100">
+                    <p className="text-[10px] uppercase tracking-widest text-rose-700 font-bold mb-1">Error Details</p>
+                    <p className="text-xs text-rose-600 font-mono break-all">{supabaseStatus.errorDetails}</p>
+                  </div>
+                )}
+
+                <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Tips</p>
+                  <p className="text-xs opacity-60 leading-relaxed">
+                    {supabaseStatus.connectionTest === 'Successful' 
+                      ? 'Koneksi Supabase berjalan dengan baik. Semua data tersimpan di database eksternal.' 
+                      : 'Koneksi gagal. Pastikan SUPABASE_URL dan SUPABASE_ANON_KEY sudah benar di panel Secrets.'}
+                    {!supabaseStatus.hasServiceKey && ' Anda belum memasukkan SUPABASE_SERVICE_ROLE_KEY, pastikan Row Level Security (RLS) di Supabase sudah dikonfigurasi dengan benar agar data dapat diperbarui.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="animate-spin text-cafe-espresso/20" size={32} />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Role Settings - Only for Managers or the specific user */}
         {(userRole === 'Manager' || userEmail === 'muhammadmahardhikadib@gmail.com') && (
           <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
