@@ -61,11 +61,30 @@ export default function Login({ onLogin }: LoginProps) {
         setMessage({ type: 'success', text: 'Registration successful! Please check your email for verification.' });
         setMode('login');
       } else if (mode === 'login') {
+        // Clear any stale session before logging in to avoid "Refresh Token Not Found" errors
+        if (localStorage.getItem('supabase.auth.token')) {
+          await supabase.auth.signOut();
+          localStorage.removeItem('supabase.auth.token');
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error) throw error;
+        if (error) {
+          // If it's a refresh token error, clear and retry once
+          if (error.message.includes('Refresh Token')) {
+            localStorage.clear();
+            const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+              email,
+              password,
+            });
+            if (retryError) throw retryError;
+            if (retryData.user) onLogin(retryData.user.email || 'User');
+            return;
+          }
+          throw error;
+        }
         if (data.user) {
           onLogin(data.user.email || 'User');
         }
@@ -223,7 +242,7 @@ export default function Login({ onLogin }: LoginProps) {
             </form>
 
             {mode === 'login' && (
-              <div className="text-center mt-8">
+              <div className="text-center mt-8 space-y-4">
                 <p className="text-xs text-[#5d2e17]/60">
                   Don't have an account?{' '}
                   <button 
@@ -233,6 +252,18 @@ export default function Login({ onLogin }: LoginProps) {
                     Sign up
                   </button>
                 </p>
+                <div className="pt-4 border-t border-[#5d2e17]/10">
+                  <button 
+                    onClick={async () => {
+                      localStorage.clear();
+                      await supabase.auth.signOut();
+                      window.location.reload();
+                    }}
+                    className="text-[10px] text-[#5d2e17]/40 hover:text-[#5d2e17] transition-colors uppercase tracking-widest font-bold"
+                  >
+                    Reset Session (Jika Error Auth)
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>

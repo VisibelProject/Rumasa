@@ -91,15 +91,29 @@ export default function App() {
 
   useEffect(() => {
     // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Auth session error:', error.message);
+        // If refresh token is invalid, clear the session
+        if (error.message.includes('Refresh Token')) {
+          supabase.auth.signOut();
+        }
+      }
       setSession(session);
       setIsAuthenticated(!!session);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setIsAuthenticated(!!session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setIsAuthenticated(false);
+        // Clear any potentially stale data
+        localStorage.removeItem('supabase.auth.token');
+      } else {
+        setSession(session);
+        setIsAuthenticated(!!session);
+      }
     });
 
     return () => subscription.unsubscribe();
