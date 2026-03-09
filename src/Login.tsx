@@ -21,7 +21,7 @@ export default function Login({ onLogin }: LoginProps) {
     if (!isSupabaseConfigured) {
       setMessage({ 
         type: 'warning', 
-        text: 'Supabase configuration is missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.' 
+        text: 'Konfigurasi Supabase belum lengkap. Pastikan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY sudah diatur di panel Secrets (Settings > Secrets).' 
       });
     }
 
