@@ -1,3 +1,4 @@
+import fs from "fs";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -1066,9 +1067,26 @@ async function startServer() {
     // In production (but NOT on Vercel), we serve static files from dist
     // On Vercel, we let Vercel's static file server handle this via vercel.json
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { index: false })); // Disable default index serving
+    
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        let html = fs.readFileSync(indexPath, "utf8");
+        
+        // Inject environment variables for the frontend
+        const envConfig = {
+          VITE_SUPABASE_URL: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+          VITE_SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+        };
+        
+        const script = `<script>window.__ENV__ = ${JSON.stringify(envConfig)};</script>`;
+        html = html.replace("<head>", `<head>${script}`);
+        
+        res.send(html);
+      } else {
+        res.status(404).send("Index file not found. Please run build first.");
+      }
     });
   }
 
