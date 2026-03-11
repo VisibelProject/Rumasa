@@ -34,10 +34,12 @@ import {
   LogOut,
   User,
   Mail,
-  Loader2
+  Loader2,
+  Terminal,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, StockOpname, UserRole, PersonalInformation } from './types';
+import { InventoryItem, JournalEntry, Asset, ProfitLoss, Unit, Menu, MenuIngredient, Purchase, COA, UserRole, PersonalInformation, Branch } from './types';
 import Login from './Login';
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -51,7 +53,7 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Opname' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Fisik Purchasing' | 'Stock Fisik Operasional' | 'Stock Area Kebersihan' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('userRole');
     return (saved as UserRole) || 'Manager';
@@ -64,11 +66,16 @@ export default function App() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [COA, setCOA] = useState<COA[]>([]);
-  const [stockOpnames, setStockOpnames] = useState<StockOpname[]>([]);
   const [profitLoss, setProfitLoss] = useState<ProfitLoss>({ income: 0, expenses: 0 });
   const [units, setUnits] = useState<Unit[]>([]);
   const [menus, setMenus] = useState<Menu[]>([]);
   const [personalInfo, setPersonalInfo] = useState<PersonalInformation[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('selectedBranchId');
+    // Default to branch ID 2 (RUMASA HILLSIDE) if nothing is saved
+    return saved ? parseInt(saved) : 2;
+  });
   const [egressStatus, setEgressStatus] = useState<{ usage: number, limit: number, percentage: number, warning: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
@@ -88,6 +95,13 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('lowStockThreshold', lowStockThreshold.toString());
   }, [lowStockThreshold]);
+
+  useEffect(() => {
+    if (selectedBranchId) {
+      localStorage.setItem('selectedBranchId', selectedBranchId.toString());
+      fetchData();
+    }
+  }, [selectedBranchId]);
 
   useEffect(() => {
     // Check active session
@@ -145,18 +159,19 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, stockOpnameRes, personalRes] = await Promise.all([
-        fetch('/api/inventory'),
-        fetch('/api/journal'),
-        fetch('/api/assets'),
-        fetch('/api/reports/profit-loss'),
+      const branchParam = selectedBranchId ? `?branch_id=${selectedBranchId}` : '';
+      const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, personalRes, branchesRes] = await Promise.all([
+        fetch(`/api/inventory${branchParam}`),
+        fetch(`/api/journal${branchParam}`),
+        fetch(`/api/assets${branchParam}`),
+        fetch(`/api/reports/profit-loss${branchParam}`),
         fetch('/api/units'),
-        fetch('/api/menus'),
+        fetch(`/api/menus${branchParam}`),
         fetch('/api/egress-status'),
-        fetch('/api/purchases'),
+        fetch(`/api/purchases${branchParam}`),
         fetch('/api/coa'),
-        fetch('/api/stock-opname'),
-        fetch('/api/personal-info')
+        fetch('/api/personal-info'),
+        fetch('/api/branches')
       ]);
       
       const invData = await invRes.json();
@@ -168,20 +183,26 @@ export default function App() {
       const egressData = await egressRes.json();
       const purchasesData = await purchasesRes.json();
       const COAData = await COARes.json();
-      const stockOpnameData = await stockOpnameRes.json();
       const personalData = await personalRes.json();
+      const branchesData = await branchesRes.json();
 
       setInventory(Array.isArray(invData) ? invData : []);
       setJournal(Array.isArray(journalData) ? journalData : []);
       setPurchases(Array.isArray(purchasesData) ? purchasesData : []);
       setAssets(Array.isArray(assetData) ? assetData : []);
       setCOA(Array.isArray(COAData) ? COAData : []);
-      setStockOpnames(Array.isArray(stockOpnameData) ? stockOpnameData : []);
       setProfitLoss(plData && !plData.error ? plData : { income: 0, expenses: 0 });
       setUnits(Array.isArray(unitsData) ? unitsData : []);
       setMenus(Array.isArray(menusData) ? menusData : []);
       setPersonalInfo(Array.isArray(personalData) ? personalData : []);
       setEgressStatus(egressData && !egressData.error ? egressData : null);
+      
+      if (Array.isArray(branchesData)) {
+        setBranches(branchesData);
+        if (!selectedBranchId && branchesData.length > 0) {
+          setSelectedBranchId(branchesData[0].id);
+        }
+      }
 
       // Report errors if any
       const errors = [
@@ -260,6 +281,26 @@ export default function App() {
               referrerPolicy="no-referrer"
             />
           </div>
+          
+          {/* Branch Selector */}
+          {!isMinimized && branches.length > 0 && (
+            <div className="mt-4 mb-2">
+              <label className="text-[10px] uppercase tracking-widest text-cafe-espresso/50 font-bold mb-1 block">
+                Cabang Aktif
+              </label>
+              <select
+                value={selectedBranchId || ''}
+                onChange={(e) => setSelectedBranchId(parseInt(e.target.value))}
+                className="w-full bg-cafe-paper/50 border border-cafe-espresso/20 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cafe-espresso/20 transition-all"
+              >
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         
         <nav className={`flex-1 ${isMinimized ? 'px-2' : 'px-6'} py-4 space-y-3 overflow-y-auto transition-all`}>
@@ -276,7 +317,9 @@ export default function App() {
               roles: ['Manager', 'Admin', 'Inventory'],
               subItems: [
                 { id: 'Stock Sistem', icon: Package, label: 'Stock Sistem' },
-                { id: 'Stock Opname', icon: RefreshCw, label: 'Stock Opname' },
+                { id: 'Stock Fisik Purchasing', icon: ShoppingCart, label: 'Stock Fisik Purchasing' },
+                { id: 'Stock Fisik Operasional', icon: Package, label: 'Stock Fisik Operasional', roles: ['Manager', 'Admin', 'Finance'] },
+                { id: 'Stock Area Kebersihan', icon: Package, label: 'Stock Area Kebersihan', roles: ['Manager', 'Admin'] },
               ]
             },
             { 
@@ -352,7 +395,7 @@ export default function App() {
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden pl-4 space-y-1"
                       >
-                        {item.subItems?.map(sub => (
+                        {item.subItems?.filter(sub => !sub.roles || sub.roles.includes(userRole)).map(sub => (
                           <button
                             key={sub.id}
                             onClick={() => {
@@ -487,9 +530,13 @@ export default function App() {
                     <div className="flex-1">
                       <h4 className="text-sm font-bold text-rose-800">Masalah Koneksi Database</h4>
                       <p className="text-xs text-rose-600 mt-1 leading-relaxed">
-                        Aplikasi tidak dapat terhubung ke Supabase. Dashboard menampilkan angka 0 karena data tidak dapat diambil. 
-                        Pastikan <strong>VITE_SUPABASE_URL</strong> dan <strong>VITE_SUPABASE_ANON_KEY</strong> sudah diatur dengan benar di panel Settings &gt; Secrets.
+                        {supabaseStatus.suggestedAction || 'Aplikasi tidak dapat terhubung ke Supabase. Dashboard menampilkan angka 0 karena data tidak dapat diambil.'}
                       </p>
+                      {supabaseStatus.errorDetails && (
+                        <p className="text-[10px] text-rose-500 font-mono mt-2 bg-rose-100/50 p-2 rounded-lg break-all">
+                          Error: {supabaseStatus.errorDetails}
+                        </p>
+                      )}
                       <button 
                         onClick={() => setActiveTab('settings')}
                         className="mt-3 text-xs font-bold text-rose-700 hover:underline"
@@ -595,15 +642,23 @@ export default function App() {
             )}
 
             {activeTab === 'Stock Sistem' && (
-              <InventoryView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} />
+              <InventoryView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
-            {activeTab === 'Stock Opname' && (
-              <StockOpnameView stockOpnames={stockOpnames} inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} />
+            {activeTab === 'Stock Fisik Purchasing' && (
+              <PurchasingStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
+            )}
+
+            {activeTab === 'Stock Fisik Operasional' && (
+              <OperationalStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
+            )}
+
+            {activeTab === 'Stock Area Kebersihan' && (
+              <CleaningStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'journal' && (
-              <JournalView journal={journal} COA={COA} onUpdate={fetchData} userRole={userRole} />
+              <JournalView journal={journal} COA={COA} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'COA' && (
@@ -619,19 +674,19 @@ export default function App() {
             )}
 
             {activeTab === 'assets' && (
-              <AssetsView assets={assets} onUpdate={fetchData} calculateDepreciation={calculateDepreciation} userRole={userRole} />
+              <AssetsView assets={assets} onUpdate={fetchData} calculateDepreciation={calculateDepreciation} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'purchase' && (
-              <PurchaseView inventory={inventory} purchases={purchases} onUpdate={fetchData} userRole={userRole} />
+              <PurchaseView inventory={inventory} purchases={purchases} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'sale' && (
-              <SaleView menus={menus} onUpdate={fetchData} userRole={userRole} />
+              <SaleView menus={menus} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'menu' && (
-              <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} userRole={userRole} />
+              <MenuView inventory={inventory} menus={menus} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
             {activeTab === 'personal-info' && (
@@ -666,9 +721,9 @@ export default function App() {
   );
 }
 
-function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole }) {
+function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0 });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0 });
   const [editingItem, setEditingItem] = useState<any>(null);
 
   useEffect(() => {
@@ -679,13 +734,25 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/inventory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newItem)
-    });
-    setShowAdd(false);
-    onUpdate();
+    try {
+      const response = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newItem, branch_id: selectedBranchId })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Gagal menyimpan item');
+      }
+      
+      setNewItem({ name: '', unit: units.length > 0 ? units[0].name : 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0 });
+      setShowAdd(false);
+      onUpdate();
+    } catch (error: any) {
+      console.error("Error adding item:", error);
+      alert("Error: " + error.message);
+    }
   };
 
   const handleEditItem = async (e: React.FormEvent) => {
@@ -768,6 +835,33 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
               onChange={e => setNewItem({...newItem, cost_per_unit: parseFloat(e.target.value)})}
             />
           </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Purchasing</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newItem.purchasing_physical_stock}
+              onChange={e => setNewItem({...newItem, purchasing_physical_stock: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Operasional</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newItem.operational_physical_stock}
+              onChange={e => setNewItem({...newItem, operational_physical_stock: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Area Kebersihan</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newItem.cleaning_physical_stock}
+              onChange={e => setNewItem({...newItem, cleaning_physical_stock: parseFloat(e.target.value)})}
+            />
+          </div>
           <div className="flex items-end gap-3">
             <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Simpan</button>
             <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
@@ -813,6 +907,43 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
               onChange={e => setEditingItem({...editingItem, cost_per_unit: parseFloat(e.target.value)})}
             />
           </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Sistem</label>
+            <input 
+              type="number"
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={editingItem.quantity}
+              onChange={e => setEditingItem({...editingItem, quantity: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Purchasing</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={editingItem.purchasing_physical_stock || 0}
+              onChange={e => setEditingItem({...editingItem, purchasing_physical_stock: parseFloat(e.target.value) || 0})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Operasional</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={editingItem.operational_physical_stock || 0}
+              onChange={e => setEditingItem({...editingItem, operational_physical_stock: parseFloat(e.target.value) || 0})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Area Kebersihan</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={editingItem.cleaning_physical_stock || 0}
+              onChange={e => setEditingItem({...editingItem, cleaning_physical_stock: parseFloat(e.target.value) || 0})}
+            />
+          </div>
           <div className="flex items-end gap-3">
             <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Update</button>
             <button type="button" onClick={() => setEditingItem(null)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
@@ -827,7 +958,10 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Harga / Unit</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Saat Ini</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Sistem</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Purchasing</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Operasional</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Area Kebersihan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
             </tr>
           </thead>
@@ -847,9 +981,24 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
                       {item.quantity}
                     </span>
                   </td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+                      {item.purchasing_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
+                      {item.operational_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
+                      {item.cleaning_physical_stock || 0}
+                    </span>
+                  </td>
                   <td className="p-6 text-right">
                     <div className="flex justify-end gap-2">
-                      {userRole !== 'Admin' && (
+                      {userRole === 'Manager' && (
                         <>
                           <button 
                             onClick={() => setEditingItem(item)}
@@ -879,7 +1028,7 @@ function InventoryView({ inventory, units, onUpdate, userRole }: { inventory: In
   );
 }
 
-function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void, userRole: UserRole }) {
+function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -909,6 +1058,7 @@ function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEnt
     if (newEntry.debit > 0) {
       // Entry 1: Account (Debit)
       entries.push({
+        branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.description,
         account: newEntry.account,
@@ -919,6 +1069,7 @@ function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEnt
       });
       // Entry 2: Payment Method (Credit)
       entries.push({
+        branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.payment_method,
         account: newEntry.payment_method,
@@ -930,6 +1081,7 @@ function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEnt
     } else if (newEntry.credit > 0) {
       // Entry 1: Account (Credit)
       entries.push({
+        branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.description,
         account: newEntry.account,
@@ -940,6 +1092,7 @@ function JournalView({ journal, COA, onUpdate, userRole }: { journal: JournalEnt
       });
       // Entry 2: Payment Method (Debit)
       entries.push({
+        branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.payment_method,
         account: newEntry.payment_method,
@@ -1112,15 +1265,22 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/coa', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCOA)
-    });
-    if (res.ok) {
-      setShowAdd(false);
-      setNewCOA({ code: '', name: '', category: 'Expense' });
-      onUpdate();
+    try {
+      const res = await fetch('/api/coa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCOA)
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        setNewCOA({ code: '', name: '', category: 'Expense' });
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal menambah akun: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat menambah akun.');
     }
   };
 
@@ -1292,11 +1452,12 @@ function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal:
   );
 }
 
-function AssetsView({ assets, onUpdate, calculateDepreciation, userRole }: { 
+function AssetsView({ assets, onUpdate, calculateDepreciation, userRole, selectedBranchId }: { 
   assets: Asset[], 
   onUpdate: () => void,
   calculateDepreciation: (a: Asset) => number,
-  userRole: UserRole
+  userRole: UserRole,
+  selectedBranchId: number | null
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newAsset, setNewAsset] = useState({
@@ -1309,13 +1470,23 @@ function AssetsView({ assets, onUpdate, calculateDepreciation, userRole }: {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/assets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newAsset)
-    });
-    setShowAdd(false);
-    onUpdate();
+    try {
+      const res = await fetch('/api/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newAsset, branch_id: selectedBranchId })
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        setNewAsset({ name: '', type: 'Equipment', purchase_date: new Date().toISOString().split('T')[0], purchase_price: 0, lifespan_years: 5 });
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal menambah aset: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat menambah aset.');
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -1440,7 +1611,7 @@ function AssetsView({ assets, onUpdate, calculateDepreciation, userRole }: {
   );
 }
 
-function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory: InventoryItem[], purchases: Purchase[], onUpdate: () => void, userRole: UserRole }) {
+function PurchaseView({ inventory, purchases, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], purchases: Purchase[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [formData, setFormData] = useState({
     inventory_id: '',
     quantity: 0,
@@ -1455,7 +1626,7 @@ function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory:
       const response = await fetch('/api/transactions/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, branch_id: selectedBranchId })
       });
       
       const result = await response.json();
@@ -1465,6 +1636,13 @@ function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory:
       }
       
       alert('Pembelian berhasil dicatat!');
+      setFormData({
+        inventory_id: '',
+        quantity: 0,
+        total_cost: 0,
+        date: new Date().toISOString().split('T')[0],
+        description: 'Pembelian Stok'
+      });
       onUpdate();
     } catch (error: any) {
       alert('Gagal mencatat pembelian: ' + error.message);
@@ -1609,7 +1787,7 @@ function PurchaseView({ inventory, purchases, onUpdate, userRole }: { inventory:
   );
 }
 
-function SaleView({ menus, onUpdate, userRole }: { menus: Menu[], onUpdate: () => void, userRole: UserRole }) {
+function SaleView({ menus, onUpdate, userRole, selectedBranchId }: { menus: Menu[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [formData, setFormData] = useState({
     amount: 0,
     items_sold: 1,
@@ -1626,11 +1804,19 @@ function SaleView({ menus, onUpdate, userRole }: { menus: Menu[], onUpdate: () =
     const res = await fetch('/api/transactions/sale', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
+      body: JSON.stringify({ ...formData, branch_id: selectedBranchId })
     });
     
     if (res.ok) {
       alert('Penjualan berhasil dicatat!');
+      setFormData({
+        amount: 0,
+        items_sold: 1,
+        date: new Date().toISOString().split('T')[0],
+        description: 'Penjualan Harian',
+        menu_id: '',
+        payment_method: 'Kas'
+      });
       onUpdate();
     } else {
       const error = await res.json();
@@ -1819,7 +2005,7 @@ function SaleView({ menus, onUpdate, userRole }: { menus: Menu[], onUpdate: () =
   );
 }
 
-function MenuView({ inventory, menus, onUpdate, userRole }: { inventory: InventoryItem[], menus: Menu[], onUpdate: () => void, userRole: UserRole }) {
+function MenuView({ inventory, menus, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], menus: Menu[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [selectedMenu, setSelectedMenu] = useState<Menu | null>(null);
   const [ingredients, setIngredients] = useState<MenuIngredient[]>([]);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -1844,16 +2030,23 @@ function MenuView({ inventory, menus, onUpdate, userRole }: { inventory: Invento
 
   const handleAddMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/menus', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newMenuName, price: newMenuPrice })
-    });
-    if (res.ok) {
-      setNewMenuName('');
-      setNewMenuPrice(0);
-      setShowAddMenu(false);
-      onUpdate();
+    try {
+      const res = await fetch('/api/menus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newMenuName, price: newMenuPrice, branch_id: selectedBranchId })
+      });
+      if (res.ok) {
+        setNewMenuName('');
+        setNewMenuPrice(0);
+        setShowAddMenu(false);
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal menambah menu: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat menambah menu.');
     }
   };
 
@@ -2173,6 +2366,28 @@ function SettingsView({
   onCheckStatus: () => void
 }) {
   const [newUnit, setNewUnit] = useState('');
+  const [showSql, setShowSql] = useState(false);
+  const [sqlScript, setSqlScript] = useState('');
+  const [loadingSql, setLoadingSql] = useState(false);
+
+  const fetchSql = async () => {
+    setLoadingSql(true);
+    try {
+      const res = await fetch('/api/supabase-sql');
+      const data = await res.json();
+      setSqlScript(data.sql);
+      setShowSql(true);
+    } catch (err) {
+      alert('Gagal mengambil skrip SQL');
+    } finally {
+      setLoadingSql(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('Skrip SQL berhasil disalin!');
+  };
 
   const handleAddUnit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2247,14 +2462,63 @@ function SettingsView({
                 )}
 
                 <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
-                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Tips</p>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Tips & Solusi</p>
                   <p className="text-xs opacity-60 leading-relaxed">
-                    {supabaseStatus.connectionTest === 'Successful' 
+                    {supabaseStatus.suggestedAction || (supabaseStatus.connectionTest === 'Successful' 
                       ? 'Koneksi Supabase berjalan dengan baik. Semua data tersimpan di database eksternal.' 
-                      : 'Koneksi gagal. Pastikan SUPABASE_URL dan SUPABASE_ANON_KEY sudah benar di panel Secrets.'}
+                      : 'Koneksi gagal. Pastikan SUPABASE_URL dan SUPABASE_ANON_KEY sudah benar di panel Secrets.')}
                     {!supabaseStatus.hasServiceKey && ' Anda belum memasukkan SUPABASE_SERVICE_ROLE_KEY, pastikan Row Level Security (RLS) di Supabase sudah dikonfigurasi dengan benar agar data dapat diperbarui.'}
                   </p>
+                  
+                  {supabaseStatus.connectionTest !== 'Successful' && (
+                    <button 
+                      onClick={fetchSql}
+                      disabled={loadingSql}
+                      className="mt-4 flex items-center gap-2 text-[10px] font-bold text-cafe-espresso bg-cafe-cream/20 px-4 py-2 rounded-lg hover:bg-cafe-cream/40 transition-all border border-cafe-espresso/10"
+                    >
+                      {loadingSql ? <RefreshCw size={12} className="animate-spin" /> : <Terminal size={12} />}
+                      LIHAT SKRIP SQL SETUP DATABASE
+                    </button>
+                  )}
                 </div>
+
+                {showSql && (
+                  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-cafe-espresso/60 backdrop-blur-sm">
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-white w-full max-w-3xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+                    >
+                      <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center bg-cafe-cream/10">
+                        <div className="flex items-center gap-3">
+                          <Terminal className="text-cafe-espresso" size={20} />
+                          <h4 className="text-lg font-serif italic text-cafe-espresso">SQL Setup Database</h4>
+                        </div>
+                        <button onClick={() => setShowSql(false)} className="p-2 hover:bg-cafe-espresso/5 rounded-full transition-all">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-6 bg-cafe-ink text-cafe-paper font-mono text-[10px] leading-relaxed">
+                        <pre className="whitespace-pre-wrap">{sqlScript}</pre>
+                      </div>
+                      <div className="p-6 border-t border-cafe-ink/5 flex justify-end gap-3 bg-cafe-cream/5">
+                        <button 
+                          onClick={() => copyToClipboard(sqlScript)}
+                          className="px-6 py-2.5 bg-cafe-espresso text-cafe-paper rounded-xl text-xs font-bold hover:shadow-lg transition-all flex items-center gap-2"
+                        >
+                          <Copy size={14} />
+                          SALIN SKRIP SQL
+                        </button>
+                        <button 
+                          onClick={() => setShowSql(false)}
+                          className="px-6 py-2.5 bg-cafe-espresso/5 text-cafe-espresso rounded-xl text-xs font-bold hover:bg-cafe-espresso/10 transition-all"
+                        >
+                          TUTUP
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center p-8">
@@ -2522,509 +2786,477 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
   );
 }
 
-function StockOpnameView({ stockOpnames, inventory, units, onUpdate, userRole }: { stockOpnames: StockOpname[], inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole }) {
-  const [isCreating, setIsCreating] = useState(false);
-  const [isCounting, setIsCounting] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<number[]>([]);
-  const [countingData, setCountingData] = useState<Record<number, number>>({});
-  const [searchQuery, setSearchQuery] = useState('');
-  const [notes, setNotes] = useState('');
-  const [referenceNo, setReferenceNo] = useState('');
-  const [countingDate, setCountingDate] = useState('');
-  const [selectedOpname, setSelectedOpname] = useState<StockOpname | null>(null);
+function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0 });
+  const [loading, setLoading] = useState(false);
 
-  const filteredInventory = inventory.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const toggleItem = (id: number) => {
-    setSelectedItems(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const startCounting = () => {
-    if (selectedItems.length === 0) {
-      alert('Pilih minimal satu produk untuk dilakukan stock opname.');
-      return;
-    }
-    const refNo = Math.floor(1000000000 + Math.random() * 9000000000).toString();
-    const now = new Date().toLocaleString('sv-SE'); // YYYY-MM-DD HH:mm:ss
-    
-    setReferenceNo(refNo);
-    setCountingDate(now);
-    
-    const initialData: Record<number, number> = {};
-    selectedItems.forEach(id => {
-      initialData[id] = 0;
-    });
-    setCountingData(initialData);
-    setIsCounting(true);
-    setIsCreating(false);
-  };
-
-  const handleFinishCounting = async () => {
-    if (Object.keys(countingData).length === 0) {
-      alert('Data perhitungan kosong.');
-      return;
-    }
-
-    const opnameItems = selectedItems.map(id => {
-      const item = inventory.find(inv => inv.id === id);
-      return {
-        inventory_id: id,
-        inventory_name: item?.name || 'Unknown',
-        system_quantity: item?.quantity || 0,
-        actual_quantity: countingData[id] || 0,
-        difference: (countingData[id] || 0) - (item?.quantity || 0)
-      };
-    });
-
-    const payload = {
-      reference_no: referenceNo,
-      date: countingDate.split(' ')[0],
-      type: 'Penyesuaian',
-      status: 'Menunggu Accept PIC',
-      description: notes || `Stock Opname untuk ${selectedItems.length} item`,
-      items: opnameItems
-    };
-
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
     try {
-      const res = await fetch('/api/stock-opname', {
+      const res = await fetch('/api/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...newItem, branch_id: selectedBranchId })
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        setNewItem({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0 });
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal menambah item: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan saat menambah item.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/inventory/${editingItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          cleaning_physical_stock: editingItem.cleaning_physical_stock 
+        })
       });
       
       if (res.ok) {
-        // Reset states and go back to history
-        setIsCounting(false);
-        setIsCreating(false);
-        setSelectedItems([]);
-        setCountingData({});
-        setNotes('');
+        setEditingItem(null);
         onUpdate();
       } else {
-        const err = await res.json();
-        alert('Gagal menyimpan stock opname: ' + (err.error || 'Terjadi kesalahan server'));
+        const error = await res.json();
+        alert('Gagal memperbarui stok area kebersihan: ' + (error.error || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Error saving stock opname:', error);
-      alert('Terjadi kesalahan koneksi saat menyimpan data.');
+      alert('Terjadi kesalahan koneksi.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleUpdateStatus = async (id: number, status: 'Accept') => {
-    try {
-      const res = await fetch(`/api/stock-opname/${id}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
-      });
-      if (res.ok) onUpdate();
-    } catch (error) {
-      console.error('Error updating status:', error);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Hapus riwayat opname ini?')) return;
-    try {
-      const res = await fetch(`/api/stock-opname/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        onUpdate();
-      } else {
-        const err = await res.json();
-        alert('Gagal menghapus riwayat opname: ' + (err.error || 'Terjadi kesalahan server'));
-      }
-    } catch (error) {
-      console.error('Error deleting stock opname:', error);
-      alert('Terjadi kesalahan koneksi saat menghapus data.');
-    }
-  };
-
-  if (isCounting) {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        className="space-y-6"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsCounting(false)}
-              className="text-cafe-espresso hover:opacity-70 transition-opacity"
-            >
-              <ChevronLeft size={24} />
-            </button>
-            <h3 className="text-2xl font-bold text-cafe-espresso">Proses perhitungan</h3>
-          </div>
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={handleFinishCounting}
-              className="px-8 py-2.5 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
-            >
-              Selesai
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-8 mb-8">
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">REFERENCE</p>
-              <p className="font-mono text-sm">{referenceNo}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">TANGGAL</p>
-              <p className="font-mono text-sm">{countingDate}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">TIPE</p>
-              <p className="text-sm">Product</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold">NOTES</p>
-              <p className="text-sm opacity-60">{notes || '-'}</p>
-            </div>
-            <div className="md:col-span-1">
-              <div className="bg-cafe-cream/10 p-4 rounded-xl border border-cafe-ink/5 space-y-3">
-                <input 
-                  type="text" 
-                  placeholder="Letakkan kursor untuk Scan"
-                  className="w-full bg-white border border-cafe-ink/10 rounded-lg px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none transition-colors"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px]">
-              <thead>
-                <tr className="bg-cafe-cream/5 border-b border-cafe-ink/5">
-                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
-                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Stock Sistem</th>
-                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-center">Stok Gudang</th>
-                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Ket</th>
-                  <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Selisih</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-cafe-ink/5">
-                {selectedItems.map(id => {
-                  const item = inventory.find(i => i.id === id);
-                  if (!item) return null;
-                  const systemStock = item.quantity;
-                  const physicalStock = countingData[id] || 0;
-                  const diff = physicalStock - systemStock;
-                  
-                  let ket = 'Sesuai';
-                  let ketColor = 'text-cafe-ink';
-                  if (diff > 0) {
-                    ket = `Lebih ${diff}`;
-                    ketColor = 'text-emerald-600';
-                  } else if (diff < 0) {
-                    ket = `Kurang ${Math.abs(diff)}`;
-                    ketColor = 'text-rose-600';
-                  }
-
-                  return (
-                    <tr key={id} className="hover:bg-cafe-cream/5 transition-colors">
-                      <td className="p-4 text-sm font-medium">{item.name}</td>
-                      <td className="p-4 text-sm font-mono">{systemStock}</td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-center gap-3">
-                          <button 
-                            onClick={() => setCountingData(prev => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) - 1) }))}
-                            className="p-1 rounded border border-cafe-ink/10 hover:bg-cafe-cream/10"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <input 
-                            type="number"
-                            className="w-16 text-center border border-cafe-ink/10 rounded py-1 text-sm font-mono focus:outline-none focus:border-emerald-500"
-                            value={physicalStock}
-                            onChange={(e) => setCountingData(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 0 }))}
-                          />
-                          <button 
-                            onClick={() => setCountingData(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }))}
-                            className="p-1 rounded border border-cafe-ink/10 hover:bg-cafe-cream/10"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </td>
-                      <td className={`p-4 text-sm font-bold ${ketColor}`}>{ket}</td>
-                      <td className="p-4 text-sm font-mono"></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
-
-  if (isCreating) {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        className="space-y-6"
-      >
-        <div className="flex items-center justify-between">
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Stock Area Kebersihan</h3>
+        <div className="flex items-center gap-4">
           <button 
-            onClick={() => setIsCreating(false)}
-            className="flex items-center gap-2 text-cafe-espresso hover:opacity-70 transition-opacity font-medium"
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
           >
-            <ChevronLeft size={20} /> Kembali
+            <Plus size={18} /> Tambah Item
           </button>
-          <h3 className="text-2xl font-serif italic text-cafe-espresso">Buat Stok Opname</h3>
-          <button 
-            onClick={startCounting}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all"
-          >
-            Mulai Hitung
-          </button>
+          <div className="text-[10px] uppercase tracking-widest opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">
+            Role: {userRole}
+          </div>
         </div>
+      </div>
 
-        <div className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      {showAdd && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6"
+          onSubmit={handleAdd}
+        >
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Item</label>
+            <input 
+              required
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+              value={newItem.name}
+              onChange={e => setNewItem({...newItem, name: e.target.value})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
+              value={newItem.unit}
+              onChange={e => setNewItem({...newItem, unit: e.target.value})}
+            >
+              {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Awal</label>
+            <input 
+              type="number"
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+              value={newItem.cleaning_physical_stock}
+              onChange={e => setNewItem({...newItem, cleaning_physical_stock: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="flex items-end gap-3">
+            <button type="submit" disabled={loading} className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold disabled:opacity-50">
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
+          </div>
+        </motion.form>
+      )}
+
+      {editingItem && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-6 items-end"
+          onSubmit={handleUpdateStock}
+        >
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Notes / Keterangan</label>
-              <textarea 
-                className="w-full border border-cafe-ink/10 rounded-xl p-4 text-sm focus:border-cafe-espresso focus:outline-none transition-colors min-h-[100px]"
-                placeholder="Tambahkan catatan di sini..."
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</label>
+              <input 
+                disabled
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm opacity-50 cursor-not-allowed"
+                value={editingItem.name}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Cari Produk</label>
-              <div className="relative">
-                <input 
-                  type="text"
-                  className="w-full border border-cafe-ink/10 rounded-xl pl-10 pr-4 py-3 text-sm focus:border-cafe-espresso focus:outline-none transition-colors"
-                  placeholder="Cari berdasarkan nama SKU..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-                <List className="absolute left-3 top-3.5 opacity-30" size={18} />
-              </div>
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Area Kebersihan ({editingItem.unit})</label>
+              <input 
+                type="number"
+                required
+                autoFocus
+                className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
+                value={editingItem.cleaning_physical_stock || 0}
+                onChange={e => setEditingItem({...editingItem, cleaning_physical_stock: parseFloat(e.target.value) || 0})}
+              />
             </div>
           </div>
-
-          <div className="border border-cafe-ink/5 rounded-xl overflow-hidden overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px]">
-              <thead>
-                <tr className="bg-cafe-cream/10 border-b border-cafe-ink/5">
-                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Nama Produk</th>
-                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
-                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-right">Qty Stock</th>
-                  <th className="p-4 text-[10px] uppercase tracking-widest opacity-50 font-bold text-center">Checklist</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-cafe-ink/5">
-                {filteredInventory.map(item => (
-                  <tr key={item.id} className={`hover:bg-cafe-cream/5 transition-colors ${selectedItems.includes(item.id) ? 'bg-emerald-50/30' : ''}`}>
-                    <td className="p-4 text-sm font-medium">{item.name}</td>
-                    <td className="p-4 text-xs font-mono opacity-60">{item.unit}</td>
-                    <td className="p-4 text-sm text-right font-mono font-bold">{item.quantity}</td>
-                    <td className="p-4 text-center">
-                      <input 
-                        type="checkbox"
-                        className="w-5 h-5 rounded border-cafe-ink/20 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
-                        checked={selectedItems.includes(item.id)}
-                        onChange={() => toggleItem(item.id)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex gap-3">
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setEditingItem(null)} 
+              className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold"
+            >
+              Batal
+            </button>
           </div>
-        </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
-    >
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-2xl font-serif italic text-cafe-espresso">Riwayat Stock Opname</h3>
-          <p className="text-sm opacity-50 mt-1">Kelola penyesuaian stok manual</p>
-        </div>
-        <button 
-          onClick={() => setIsCreating(true)}
-          className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2"
-        >
-          <Plus size={18} /> Mulai
-        </button>
-      </div>
+        </motion.form>
+      )}
 
       <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
-            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">No Reference</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Type Opname</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Status</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Keterangan</th>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Area Kebersihan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {stockOpnames.map(item => (
-              <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
-                <td className="p-6 text-sm font-mono font-bold text-cafe-espresso">
-                  <button 
-                    onClick={() => setSelectedOpname(item)}
-                    className="hover:underline text-left"
-                  >
-                    {item.reference_no}
-                  </button>
-                </td>
-                <td className="p-6 text-sm text-cafe-ink">{item.date}</td>
-                <td className="p-6">
-                  <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
-                    item.type === 'Penambahan' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                  }`}>
-                    {item.type}
-                  </span>
-                </td>
-                <td className="p-6">
-                  <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
-                    item.status === 'Accept' ? 'bg-blue-50 text-blue-700' : 
-                    item.status === 'Menunggu Accept PIC' ? 'bg-amber-50 text-amber-700' :
-                    'bg-gray-50 text-gray-700'
-                  }`}>
-                    {item.status}
-                  </span>
-                </td>
-                <td className="p-6 text-sm text-cafe-ink/70">{item.description}</td>
-                <td className="p-6 text-right">
-                  <div className="flex justify-end gap-3">
-                    {userRole === 'Manager' && (item.status === 'Pending' || item.status === 'Menunggu Accept PIC') && (
-                      <button 
-                        onClick={() => handleUpdateStatus(item.id, 'Accept')}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Accept"
-                      >
-                        <Save size={18} />
-                      </button>
-                    )}
-                    {userRole !== 'Admin' && (
-                      <button 
-                        onClick={() => handleDelete(item.id)}
-                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {stockOpnames.length === 0 && (
+            {inventory.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada riwayat stock opname.</td>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
               </tr>
+            ) : (
+              inventory.map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
+                      {item.cleaning_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right">
+                    <button 
+                      onClick={() => setEditingItem(item)}
+                      className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                      title="Update Stok Fisik"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
 
-      <AnimatePresence>
-        {selectedOpname && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-cafe-espresso/40 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-cafe-ink/5 flex justify-between items-center bg-cafe-cream/10">
-                <div>
-                  <h3 className="text-2xl font-serif italic text-cafe-espresso">Detail Stock Opname</h3>
-                  <p className="text-sm opacity-50 mt-1">Ref: {selectedOpname.reference_no} | {selectedOpname.date}</p>
-                </div>
-                <button 
-                  onClick={() => setSelectedOpname(null)}
-                  className="p-2 hover:bg-cafe-ink/5 rounded-full transition-colors"
-                >
-                  <X size={24} />
-                </button>
-              </div>
+function OperationalStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [loading, setLoading] = useState(false);
 
-              <div className="p-8 max-h-[60vh] overflow-y-auto">
-                <div className="grid grid-cols-2 gap-8 mb-8">
-                  <div className="bg-cafe-cream/5 p-4 rounded-xl border border-cafe-ink/5">
-                    <p className="text-[10px] uppercase tracking-widest opacity-50 font-bold mb-1">Status</p>
-                    <p className="text-sm font-bold text-cafe-espresso">{selectedOpname.status}</p>
-                  </div>
-                  <div className="bg-cafe-cream/5 p-4 rounded-xl border border-cafe-ink/5">
-                    <p className="text-[10px] uppercase tracking-widest opacity-50 font-bold mb-1">Keterangan</p>
-                    <p className="text-sm text-cafe-ink">{selectedOpname.description}</p>
-                  </div>
-                </div>
+  const handleUpdateStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/inventory/${editingItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          operational_physical_stock: editingItem.operational_physical_stock 
+        })
+      });
+      
+      if (res.ok) {
+        setEditingItem(null);
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal memperbarui stok fisik operasional: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan koneksi.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-                <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[600px]">
-                    <thead>
-                      <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
-                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold">Produk</th>
-                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Sistem</th>
-                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aktual</th>
-                        <th className="p-4 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Selisih</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-cafe-ink/5">
-                      {selectedOpname.items?.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-cafe-cream/10 transition-colors">
-                          <td className="p-4 text-sm font-bold text-cafe-espresso">{item.inventory_name}</td>
-                          <td className="p-4 text-sm text-right font-mono text-cafe-ink/60">{item.system_quantity}</td>
-                          <td className="p-4 text-sm text-right font-mono font-bold text-cafe-espresso">{item.actual_quantity}</td>
-                          <td className={`p-4 text-sm text-right font-mono font-bold ${
-                            item.difference > 0 ? 'text-emerald-600' : 
-                            item.difference < 0 ? 'text-rose-600' : 
-                            'text-cafe-ink/40'
-                          }`}>
-                            {item.difference > 0 ? `+${item.difference}` : item.difference}
-                          </td>
-                        </tr>
-                      ))}
-                      {(!selectedOpname.items || selectedOpname.items.length === 0) && (
-                        <tr>
-                          <td colSpan={4} className="p-8 text-center text-sm opacity-40 italic font-serif">Data item tidak tersedia untuk record lama.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Stock Fisik Operasional</h3>
+        <div className="text-[10px] uppercase tracking-widest opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">
+          Role: {userRole}
+        </div>
+      </div>
 
-              <div className="p-8 bg-cafe-cream/5 border-t border-cafe-ink/5 flex justify-end">
-                <button 
-                  onClick={() => setSelectedOpname(null)}
-                  className="px-8 py-3 bg-cafe-espresso text-cafe-paper rounded-xl font-bold hover:opacity-90 transition-opacity"
-                >
-                  Tutup
-                </button>
-              </div>
-            </motion.div>
+      {editingItem && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-6 items-end"
+          onSubmit={handleUpdateStock}
+        >
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</label>
+              <input 
+                disabled
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm opacity-50 cursor-not-allowed"
+                value={editingItem.name}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Operasional ({editingItem.unit})</label>
+              <input 
+                type="number"
+                required
+                autoFocus
+                className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
+                value={editingItem.operational_physical_stock || 0}
+                onChange={e => setEditingItem({...editingItem, operational_physical_stock: parseFloat(e.target.value) || 0})}
+              />
+            </div>
           </div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+          <div className="flex gap-3">
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setEditingItem(null)} 
+              className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold"
+            >
+              Batal
+            </button>
+          </div>
+        </motion.form>
+      )}
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Operasional</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {inventory.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
+              </tr>
+            ) : (
+              inventory.map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
+                      {item.operational_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right">
+                    <button 
+                      onClick={() => setEditingItem(item)}
+                      className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                      title="Update Stok Fisik"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PurchasingStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleUpdateStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/inventory/${editingItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          purchasing_physical_stock: editingItem.purchasing_physical_stock 
+        })
+      });
+      
+      if (res.ok) {
+        setEditingItem(null);
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal memperbarui stok fisik: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan koneksi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Stock Fisik Purchasing</h3>
+        <div className="text-[10px] uppercase tracking-widest opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">
+          Role: {userRole}
+        </div>
+      </div>
+
+      {editingItem && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-6 items-end"
+          onSubmit={handleUpdateStock}
+        >
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</label>
+              <input 
+                disabled
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm opacity-50 cursor-not-allowed"
+                value={editingItem.name}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stok Fisik Purchasing ({editingItem.unit})</label>
+              <input 
+                type="number"
+                required
+                autoFocus
+                className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
+                value={editingItem.purchasing_physical_stock || 0}
+                onChange={e => setEditingItem({...editingItem, purchasing_physical_stock: parseFloat(e.target.value) || 0})}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setEditingItem(null)} 
+              className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold"
+            >
+              Batal
+            </button>
+          </div>
+        </motion.form>
+      )}
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Purchasing</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {inventory.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
+              </tr>
+            ) : (
+              inventory.map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+                      {item.purchasing_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right">
+                    <button 
+                      onClick={() => setEditingItem(item)}
+                      className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                      title="Update Stok Fisik"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

@@ -1,11 +1,21 @@
 export type UserRole = 'Manager' | 'Admin' | 'Inventory' | 'Finance';
 
+export interface Branch {
+  id: number;
+  name: string;
+  location?: string;
+}
+
 export interface InventoryItem {
   id: number;
+  branch_id: number;
   name: string;
   unit: string;
   quantity: number;
   cost_per_unit: number;
+  purchasing_physical_stock?: number;
+  operational_physical_stock?: number;
+  cleaning_physical_stock?: number;
 }
 
 export interface Unit {
@@ -15,6 +25,7 @@ export interface Unit {
 
 export interface JournalEntry {
   id: number;
+  branch_id: number;
   date: string;
   description: string;
   account: string;
@@ -26,6 +37,7 @@ export interface JournalEntry {
 
 export interface Asset {
   id: number;
+  branch_id: number;
   name: string;
   type: 'Machinery' | 'Office Equipment';
   purchase_date: string;
@@ -40,6 +52,7 @@ export interface ProfitLoss {
 
 export interface Menu {
   id: number;
+  branch_id: number;
   name: string;
   price: number;
   hpp?: number;
@@ -64,30 +77,13 @@ export interface COA {
 
 export interface Purchase {
   id: number;
+  branch_id: number;
   inventory_id: number;
   inventory_name?: string;
   quantity: number;
   total_cost: number;
   date: string;
   description: string;
-}
-
-export interface StockOpnameItem {
-  inventory_id: number;
-  inventory_name: string;
-  system_quantity: number;
-  actual_quantity: number;
-  difference: number;
-}
-
-export interface StockOpname {
-  id: number;
-  reference_no: string;
-  date: string;
-  type: 'Penambahan' | 'Pengurangan' | 'Penyesuaian';
-  status: 'Pending' | 'Accept' | 'Menunggu Accept PIC';
-  description: string;
-  items?: StockOpnameItem[];
 }
 
 export interface PersonalInformation {
