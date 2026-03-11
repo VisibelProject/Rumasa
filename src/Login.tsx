@@ -133,7 +133,7 @@ export default function Login({ onLogin }: LoginProps) {
       >
         <div className="text-center mb-8">
           <h1 className="text-5xl font-serif italic text-[#5d2e17] mb-2" style={{ fontFamily: "'Cormorant Garamond', serif" }}>
-            rumasa
+            RUMASA
           </h1>
         </div>
 
