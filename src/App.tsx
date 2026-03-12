@@ -275,8 +275,8 @@ export default function App() {
         <div className={`pt-8 pb-2 ${isMinimized ? 'px-2' : 'px-8'} border-b border-cafe-ink/10 transition-all`}>
           <div className="flex flex-col items-center text-center">
             <img 
-              src="https://lh3.googleusercontent.com/d/1pjtSR-r2YJMexgm3hl6jtANdjbVn2FZD" 
-              alt="RestoManager Logo" 
+              src="https://lh3.googleusercontent.com/d/1bYm_VD5lfX4FT3NcK-1ijtR_P_eShjwM" 
+              alt="RUMASA Logo" 
               className={`${isMinimized ? 'w-12 h-12' : 'w-36 h-36'} mb-0 object-contain transition-all`}
               referrerPolicy="no-referrer"
             />
