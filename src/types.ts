@@ -16,6 +16,8 @@ export interface InventoryItem {
   purchasing_physical_stock?: number;
   operational_physical_stock?: number;
   cleaning_physical_stock?: number;
+  damaged_stock?: number;
+  category: 'Raw Material' | 'Cleaning';
 }
 
 export interface Unit {

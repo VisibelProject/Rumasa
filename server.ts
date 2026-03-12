@@ -80,6 +80,29 @@ async function startServer() {
     if (!client) return;
     console.log("Running branch migration...");
     const tables = ["inventory", "journal", "assets", "menu_items", "purchases"];
+    
+    // Check if damaged_stock column exists in inventory
+    try {
+      const { data: columns, error: colError } = await client.rpc('get_column_exists', { 
+        t_name: 'inventory', 
+        c_name: 'damaged_stock' 
+      });
+      // If RPC doesn't exist, we'll try a direct query or just ignore and let the update fail if column missing
+      // For now, let's just try to add it if it might be missing
+      await client.rpc('add_column_if_missing', {
+        t_name: 'inventory',
+        c_name: 'damaged_stock',
+        c_type: 'NUMERIC DEFAULT 0'
+      });
+      await client.rpc('add_column_if_missing', {
+        t_name: 'inventory',
+        c_name: 'category',
+        c_type: "TEXT DEFAULT 'Raw Material' CHECK (category IN ('Raw Material', 'Cleaning'))"
+      });
+    } catch (e) {
+      // Ignore RPC errors
+    }
+
     for (const table of tables) {
       try {
         const { error } = await client.from(table).update({ branch_id: 1 }).is("branch_id", null);
@@ -186,6 +209,8 @@ CREATE TABLE IF NOT EXISTS inventory (
   purchasing_physical_stock NUMERIC DEFAULT 0,
   operational_physical_stock NUMERIC DEFAULT 0,
   cleaning_physical_stock NUMERIC DEFAULT 0,
+  damaged_stock NUMERIC DEFAULT 0,
+  category TEXT DEFAULT 'Raw Material' CHECK (category IN ('Raw Material', 'Cleaning')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -404,7 +429,7 @@ ON CONFLICT DO NOTHING;
   app.post("/api/inventory", async (req, res) => {
     const client = getSupabaseClient();
     if (!client) return res.status(500).json({ error: "Supabase not configured" });
-    const { branch_id, name, unit, quantity, cost_per_unit, purchasing_physical_stock, operational_physical_stock, cleaning_physical_stock } = req.body;
+    const { branch_id, name, unit, quantity, cost_per_unit, purchasing_physical_stock, operational_physical_stock, cleaning_physical_stock, damaged_stock, category } = req.body;
     const { data, error } = await client
       .from("inventory")
       .insert([{ 
@@ -415,7 +440,9 @@ ON CONFLICT DO NOTHING;
         cost_per_unit, 
         purchasing_physical_stock: purchasing_physical_stock || 0,
         operational_physical_stock: operational_physical_stock || 0,
-        cleaning_physical_stock: cleaning_physical_stock || 0
+        cleaning_physical_stock: cleaning_physical_stock || 0,
+        damaged_stock: damaged_stock || 0,
+        category: category || 'Raw Material'
       }])
       .select();
     
@@ -434,7 +461,7 @@ ON CONFLICT DO NOTHING;
   app.put("/api/inventory/:id", async (req, res) => {
     const client = getSupabaseClient();
     if (!client) return res.status(500).json({ error: "Supabase not configured" });
-    const { name, unit, quantity, cost_per_unit, purchasing_physical_stock, operational_physical_stock, cleaning_physical_stock } = req.body;
+    const { name, unit, quantity, cost_per_unit, purchasing_physical_stock, operational_physical_stock, cleaning_physical_stock, damaged_stock, category } = req.body;
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (unit !== undefined) updateData.unit = unit;
@@ -443,6 +470,8 @@ ON CONFLICT DO NOTHING;
     if (purchasing_physical_stock !== undefined) updateData.purchasing_physical_stock = purchasing_physical_stock;
     if (operational_physical_stock !== undefined) updateData.operational_physical_stock = operational_physical_stock;
     if (cleaning_physical_stock !== undefined) updateData.cleaning_physical_stock = cleaning_physical_stock;
+    if (damaged_stock !== undefined) updateData.damaged_stock = damaged_stock;
+    if (category !== undefined) updateData.category = category;
 
     const { error } = await client
       .from("inventory")

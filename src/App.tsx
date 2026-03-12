@@ -53,7 +53,7 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Fisik Purchasing' | 'Stock Fisik Operasional' | 'Stock Area Kebersihan' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Fisik Purchasing' | 'Stock Fisik Operasional' | 'Stock Area Kebersihan' | 'Stock Bahan Baku Rusak' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('userRole');
     return (saved as UserRole) || 'Manager';
@@ -316,10 +316,11 @@ export default function App() {
               isGroup: true,
               roles: ['Manager', 'Admin', 'Inventory'],
               subItems: [
-                { id: 'Stock Sistem', icon: Package, label: 'Stock Sistem' },
+                { id: 'Stock Sistem', icon: Package, label: 'Stock Bahan Baku' },
                 { id: 'Stock Fisik Purchasing', icon: ShoppingCart, label: 'Stock Fisik Purchasing' },
                 { id: 'Stock Fisik Operasional', icon: Package, label: 'Stock Fisik Operasional', roles: ['Manager', 'Admin', 'Finance'] },
                 { id: 'Stock Area Kebersihan', icon: Package, label: 'Stock Area Kebersihan', roles: ['Manager', 'Admin'] },
+                { id: 'Stock Bahan Baku Rusak', icon: Trash2, label: 'Bahan Baku Rusak', roles: ['Manager', 'Admin', 'Inventory'] },
               ]
             },
             { 
@@ -657,6 +658,10 @@ export default function App() {
               <CleaningStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
+            {activeTab === 'Stock Bahan Baku Rusak' && (
+              <DamagedStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
+            )}
+
             {activeTab === 'journal' && (
               <JournalView journal={journal} COA={COA} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
@@ -723,8 +728,9 @@ export default function App() {
 
 function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0 });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0, category: 'Raw Material' as 'Raw Material' | 'Cleaning' });
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [filterCategory, setFilterCategory] = useState<'All' | 'Raw Material' | 'Cleaning'>('All');
 
   useEffect(() => {
     if (units.length > 0 && !newItem.unit) {
@@ -746,7 +752,7 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
         throw new Error(errorData.error || 'Gagal menyimpan item');
       }
       
-      setNewItem({ name: '', unit: units.length > 0 ? units[0].name : 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0 });
+      setNewItem({ name: '', unit: units.length > 0 ? units[0].name : 'GR', quantity: 0, cost_per_unit: 0, purchasing_physical_stock: 0, operational_physical_stock: 0, cleaning_physical_stock: 0, category: 'Raw Material' });
       setShowAdd(false);
       onUpdate();
     } catch (error: any) {
@@ -773,10 +779,37 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
     onUpdate();
   };
 
+  const filteredInventory = inventory.filter(item => {
+    if (filterCategory === 'All') {
+      // In "Stock Sistem", if user wants it to NOT include cleaning, we filter it to Raw Material only
+      // But if they use the filter buttons, we respect them.
+      // The user said "stock sistem tidak perlu bertambah", implying they want it to be Bahan Baku only.
+      return item.category === 'Raw Material';
+    }
+    return item.category === filterCategory;
+  });
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
-        <h3 className="text-xl font-serif italic text-cafe-espresso">Manajemen Inventaris</h3>
+        <div className="flex items-center gap-6">
+          <h3 className="text-xl font-serif italic text-cafe-espresso">Manajemen Inventaris</h3>
+          <div className="flex bg-cafe-cream/20 p-1 rounded-xl border border-cafe-ink/5">
+            {(['All', 'Raw Material', 'Cleaning'] as const).map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setFilterCategory(cat)}
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  filterCategory === cat 
+                    ? 'bg-cafe-espresso text-cafe-paper shadow-sm' 
+                    : 'text-cafe-espresso/40 hover:text-cafe-espresso'
+                }`}
+              >
+                {cat === 'Raw Material' ? 'Bahan Baku' : cat === 'Cleaning' ? 'Kebersihan' : 'Semua'}
+              </button>
+            ))}
+          </div>
+        </div>
         {userRole !== 'Admin' && (
           <button 
             onClick={() => setShowAdd(true)}
@@ -802,6 +835,17 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
               value={newItem.name}
               onChange={e => setNewItem({...newItem, name: e.target.value})}
             />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kategori</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={newItem.category}
+              onChange={e => setNewItem({...newItem, category: e.target.value as any})}
+            >
+              <option value="Raw Material">Bahan Baku</option>
+              <option value="Cleaning">Kebersihan</option>
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</label>
@@ -886,6 +930,17 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
             />
           </div>
           <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kategori</label>
+            <select 
+              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+              value={editingItem.category}
+              onChange={e => setEditingItem({...editingItem, category: e.target.value as any})}
+            >
+              <option value="Raw Material">Bahan Baku</option>
+              <option value="Cleaning">Kebersihan</option>
+            </select>
+          </div>
+          <div className="space-y-2">
             <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Satuan</label>
             <select 
               className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
@@ -956,44 +1011,32 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Kategori</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Harga / Unit</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Sistem</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Purchasing</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Fisik Operasional</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Area Kebersihan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {inventory.length === 0 ? (
+            {filteredInventory.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris. Klik "Tambah Item" untuk memulai.</td>
+                <td colSpan={6} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris untuk kategori ini.</td>
               </tr>
             ) : (
-              inventory.map(item => (
+              filteredInventory.map(item => (
                 <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
                   <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-[10px] font-bold uppercase tracking-tighter">
+                    <span className={`px-2 py-1 rounded-md ${item.category === 'Cleaning' ? 'bg-blue-50 text-blue-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
+                      {item.category === 'Raw Material' ? 'Bahan Baku' : 'Kebersihan'}
+                    </span>
+                  </td>
                   <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
                   <td className="p-6 text-sm text-right font-mono">{formatCurrency(item.cost_per_unit || 0)}</td>
                   <td className="p-6 text-sm text-right font-mono">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.quantity < 10 ? 'bg-rose-50 text-rose-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
                       {item.quantity}
-                    </span>
-                  </td>
-                  <td className="p-6 text-sm text-right font-mono">
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
-                      {item.purchasing_physical_stock || 0}
-                    </span>
-                  </td>
-                  <td className="p-6 text-sm text-right font-mono">
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
-                      {item.operational_physical_stock || 0}
-                    </span>
-                  </td>
-                  <td className="p-6 text-sm text-right font-mono">
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
-                      {item.cleaning_physical_stock || 0}
                     </span>
                   </td>
                   <td className="p-6 text-right">
@@ -2789,7 +2832,7 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
 function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0 });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, category: 'Cleaning' as const });
   const [loading, setLoading] = useState(false);
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -2803,7 +2846,7 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
       });
       if (res.ok) {
         setShowAdd(false);
-        setNewItem({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0 });
+        setNewItem({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, category: 'Cleaning' });
         onUpdate();
       } else {
         const error = await res.json();
@@ -2963,12 +3006,12 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {inventory.length === 0 ? (
+            {inventory.filter(i => i.category === 'Cleaning').length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris kebersihan.</td>
               </tr>
             ) : (
-              inventory.map(item => (
+              inventory.filter(i => i.category === 'Cleaning').map(item => (
                 <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
                   <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
                   <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
@@ -2982,6 +3025,138 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
                       onClick={() => setEditingItem(item)}
                       className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
                       title="Update Stok Fisik"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DamagedStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleUpdateStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/inventory/${editingItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          damaged_stock: editingItem.damaged_stock 
+        })
+      });
+      
+      if (res.ok) {
+        setEditingItem(null);
+        onUpdate();
+      } else {
+        const error = await res.json();
+        alert('Gagal memperbarui stok bahan baku rusak: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      alert('Terjadi kesalahan koneksi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-serif italic text-cafe-espresso">Bahan Baku Rusak</h3>
+        <div className="text-[10px] uppercase tracking-widest opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">
+          Role: {userRole}
+        </div>
+      </div>
+
+      {editingItem && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-6 items-end"
+          onSubmit={handleUpdateStock}
+        >
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</label>
+              <input 
+                disabled
+                className="w-full border-b border-cafe-ink/10 py-2 text-sm opacity-50 cursor-not-allowed"
+                value={editingItem.name}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">QTY Rusak ({editingItem.unit})</label>
+              <input 
+                type="number"
+                required
+                autoFocus
+                className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
+                value={editingItem.damaged_stock || 0}
+                onChange={e => setEditingItem({...editingItem, damaged_stock: parseFloat(e.target.value) || 0})}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setEditingItem(null)} 
+              className="px-6 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold"
+            >
+              Batal
+            </button>
+          </div>
+        </motion.form>
+      )}
+
+      <div className="bg-white border border-cafe-ink/5 rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
+          <thead>
+            <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">ITEM</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">QTY</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cafe-ink/5">
+            {inventory.filter(i => i.category === 'Raw Material').length === 0 ? (
+              <tr>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris bahan baku rusak.</td>
+              </tr>
+            ) : (
+              inventory.filter(i => i.category === 'Raw Material').map(item => (
+                <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
+                  <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
+                  <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.damaged_stock && item.damaged_stock > 0 ? 'bg-rose-50 text-rose-700' : 'bg-cafe-cream text-cafe-espresso'}`}>
+                      {item.damaged_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-right">
+                    <button 
+                      onClick={() => setEditingItem(item)}
+                      className="p-2 rounded-lg border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-espresso hover:text-white transition-all"
+                      title="Update Stok Rusak"
                     >
                       <Edit2 size={16} />
                     </button>
@@ -3095,12 +3270,12 @@ function OperationalStockView({ inventory, units, onUpdate, userRole, selectedBr
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {inventory.length === 0 ? (
+            {inventory.filter(i => i.category === 'Raw Material').length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris bahan baku operasional.</td>
               </tr>
             ) : (
-              inventory.map(item => (
+              inventory.filter(i => i.category === 'Raw Material').map(item => (
                 <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
                   <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
                   <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
@@ -3227,12 +3402,12 @@ function PurchasingStockView({ inventory, units, onUpdate, userRole, selectedBra
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            {inventory.length === 0 ? (
+            {inventory.filter(i => i.category === 'Raw Material').length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris.</td>
+                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris bahan baku purchasing.</td>
               </tr>
             ) : (
-              inventory.map(item => (
+              inventory.filter(i => i.category === 'Raw Material').map(item => (
                 <tr key={item.id} className="hover:bg-cafe-cream/20 transition-colors">
                   <td className="p-6 text-sm font-medium text-cafe-ink">{item.name}</td>
                   <td className="p-6 text-sm font-mono opacity-60">{item.unit}</td>
