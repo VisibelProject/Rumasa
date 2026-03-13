@@ -17,6 +17,7 @@ export interface InventoryItem {
   operational_physical_stock?: number;
   cleaning_physical_stock?: number;
   damaged_stock?: number;
+  used_stock?: number;
   category: 'Raw Material' | 'Cleaning';
 }
 
@@ -33,8 +34,9 @@ export interface JournalEntry {
   account: string;
   debit: number;
   credit: number;
-  category?: 'Income' | 'Expense' | 'Asset';
+  category?: 'Income' | 'Expense' | 'Asset' | 'Adjustment';
   payment_method?: 'Bank' | 'Kas';
+  is_adjustment?: boolean;
 }
 
 export interface Asset {
@@ -74,7 +76,7 @@ export interface COA {
   id: number;
   code: string;
   name: string;
-  category: 'Income' | 'Expense' | 'Asset';
+  category: 'Income' | 'Expense' | 'Asset' | 'Adjustment';
 }
 
 export interface Purchase {

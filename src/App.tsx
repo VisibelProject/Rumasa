@@ -53,7 +53,7 @@ const formatCurrency = (amount: number) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Fisik Purchasing' | 'Stock Fisik Operasional' | 'Stock Area Kebersihan' | 'Stock Bahan Baku Rusak' | 'journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'Stock Sistem' | 'Stock Fisik Purchasing' | 'Stock Fisik Operasional' | 'Stock Area Kebersihan' | 'Stock Bahan Baku Rusak' | 'journal' | 'adjustment-journal' | 'reports' | 'assets' | 'purchase' | 'sale' | 'settings' | 'menu' | 'worksheet' | 'COA' | 'personal-info' | 'employee-data'>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('userRole');
     return (saved as UserRole) || 'Manager';
@@ -101,7 +101,7 @@ export default function App() {
       localStorage.setItem('selectedBranchId', selectedBranchId.toString());
       fetchData();
     }
-  }, [selectedBranchId]);
+  }, [selectedBranchId, activeTab]);
 
   useEffect(() => {
     // Check active session
@@ -159,7 +159,8 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const branchParam = selectedBranchId ? `?branch_id=${selectedBranchId}` : '';
+      const isReportTab = activeTab === 'reports' || activeTab === 'worksheet';
+      const branchParam = (selectedBranchId && !isReportTab) ? `?branch_id=${selectedBranchId}` : '';
       const [invRes, journalRes, assetRes, plRes, unitsRes, menusRes, egressRes, purchasesRes, COARes, personalRes, branchesRes] = await Promise.all([
         fetch(`/api/inventory${branchParam}`),
         fetch(`/api/journal${branchParam}`),
@@ -331,6 +332,7 @@ export default function App() {
               roles: ['Manager', 'Admin', 'Finance'],
               subItems: [
                 { id: 'journal', icon: BookOpen, label: 'Jurnal Umum' },
+                { id: 'adjustment-journal', icon: BookOpen, label: 'Jurnal Penyesuaian' },
                 { id: 'COA', icon: List, label: 'Chart of Accounts' },
                 { id: 'worksheet', icon: Calculator, label: 'Worksheet' },
                 { id: 'reports', icon: BarChart3, label: 'Laba Rugi' },
@@ -662,8 +664,16 @@ export default function App() {
               <DamagedStockView inventory={inventory} units={units} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
             )}
 
-            {activeTab === 'journal' && (
-              <JournalView journal={journal} COA={COA} onUpdate={fetchData} userRole={userRole} selectedBranchId={selectedBranchId} />
+            {(activeTab === 'journal' || activeTab === 'adjustment-journal') && (
+              <JournalView 
+                key={activeTab}
+                journal={journal.filter(j => activeTab === 'adjustment-journal' ? j.is_adjustment : !j.is_adjustment)} 
+                COA={COA} 
+                onUpdate={fetchData} 
+                userRole={userRole} 
+                selectedBranchId={selectedBranchId}
+                isAdjustment={activeTab === 'adjustment-journal'}
+              />
             )}
 
             {activeTab === 'COA' && (
@@ -675,7 +685,7 @@ export default function App() {
             )}
 
             {activeTab === 'reports' && (
-              <ReportsView profitLoss={profitLoss} journal={journal} />
+              <ReportsView journal={journal} branches={branches} />
             )}
 
             {activeTab === 'assets' && (
@@ -1071,14 +1081,16 @@ function InventoryView({ inventory, units, onUpdate, userRole, selectedBranchId 
   );
 }
 
-function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
+function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId, isAdjustment = false }: { journal: JournalEntry[], COA: COA[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null, isAdjustment?: boolean }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split('T')[0],
     description: '',
     account: '',
+    creditAccount: '', // Used for adjustments
     debit: 0,
     credit: 0,
+    amount: 0, // Used for adjustments
     payment_method: 'Kas' as any
   });
 
@@ -1092,58 +1104,100 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Create two entries: one for the account and one for the payment method (offset)
     const entries = [];
     
-    const selectedCOA = COA.find(c => c.name === newEntry.account);
-    const category = selectedCOA ? selectedCOA.category : 'Expense';
+    if (isAdjustment) {
+      const debitCOA = COA.find(c => c.name === newEntry.account);
+      const creditCOA = COA.find(c => c.name === newEntry.creditAccount);
+      
+      const debitCategory = debitCOA ? debitCOA.category : 'Adjustment';
+      const creditCategory = creditCOA ? creditCOA.category : 'Adjustment';
 
-    if (newEntry.debit > 0) {
-      // Entry 1: Account (Debit)
+      // Determine payment method for worksheet sync if one of the accounts is Kas or Bank
+      let paymentMethod: 'Kas' | 'Bank' | undefined = undefined;
+      if (newEntry.account === 'Kas' || newEntry.creditAccount === 'Kas') paymentMethod = 'Kas';
+      else if (newEntry.account === 'Bank' || newEntry.creditAccount === 'Bank') paymentMethod = 'Bank';
+
+      // Entry 1: Debit Account
       entries.push({
         branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.description,
         account: newEntry.account,
-        debit: newEntry.debit,
+        debit: newEntry.amount,
         credit: 0,
-        category: category,
-        payment_method: newEntry.payment_method
+        category: debitCategory,
+        payment_method: paymentMethod,
+        is_adjustment: true
       });
-      // Entry 2: Payment Method (Credit)
-      entries.push({
-        branch_id: selectedBranchId,
-        date: newEntry.date,
-        description: newEntry.payment_method,
-        account: newEntry.payment_method,
-        debit: 0,
-        credit: newEntry.debit,
-        category: 'Asset', // Kas/Bank is an Asset
-        payment_method: newEntry.payment_method
-      });
-    } else if (newEntry.credit > 0) {
-      // Entry 1: Account (Credit)
+
+      // Entry 2: Credit Account
       entries.push({
         branch_id: selectedBranchId,
         date: newEntry.date,
         description: newEntry.description,
-        account: newEntry.account,
+        account: newEntry.creditAccount,
         debit: 0,
-        credit: newEntry.credit,
-        category: category,
-        payment_method: newEntry.payment_method
+        credit: newEntry.amount,
+        category: creditCategory,
+        payment_method: paymentMethod,
+        is_adjustment: true
       });
-      // Entry 2: Payment Method (Debit)
-      entries.push({
-        branch_id: selectedBranchId,
-        date: newEntry.date,
-        description: newEntry.payment_method,
-        account: newEntry.payment_method,
-        debit: newEntry.credit,
-        credit: 0,
-        category: 'Asset',
-        payment_method: newEntry.payment_method
-      });
+    } else {
+      const selectedCOA = COA.find(c => c.name === newEntry.account);
+      const category = selectedCOA ? selectedCOA.category : 'Expense';
+
+      if (newEntry.debit > 0) {
+        // Entry 1: Account (Debit)
+        entries.push({
+          branch_id: selectedBranchId,
+          date: newEntry.date,
+          description: newEntry.description,
+          account: newEntry.account,
+          debit: newEntry.debit,
+          credit: 0,
+          category: category,
+          payment_method: newEntry.payment_method,
+          is_adjustment: isAdjustment
+        });
+        // Entry 2: Payment Method (Credit)
+        entries.push({
+          branch_id: selectedBranchId,
+          date: newEntry.date,
+          description: newEntry.payment_method,
+          account: newEntry.payment_method,
+          debit: 0,
+          credit: newEntry.debit,
+          category: 'Asset', // Kas/Bank is an Asset
+          payment_method: newEntry.payment_method,
+          is_adjustment: isAdjustment
+        });
+      } else if (newEntry.credit > 0) {
+        // Entry 1: Account (Credit)
+        entries.push({
+          branch_id: selectedBranchId,
+          date: newEntry.date,
+          description: newEntry.description,
+          account: newEntry.account,
+          debit: 0,
+          credit: newEntry.credit,
+          category: category,
+          payment_method: newEntry.payment_method,
+          is_adjustment: isAdjustment
+        });
+        // Entry 2: Payment Method (Debit)
+        entries.push({
+          branch_id: selectedBranchId,
+          date: newEntry.date,
+          description: newEntry.payment_method,
+          account: newEntry.payment_method,
+          debit: newEntry.credit,
+          credit: 0,
+          category: 'Asset',
+          payment_method: newEntry.payment_method,
+          is_adjustment: isAdjustment
+        });
+      }
     }
 
     try {
@@ -1170,7 +1224,11 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-serif font-bold text-cafe-espresso">{isAdjustment ? 'Jurnal Penyesuaian' : 'Jurnal Umum'}</h2>
+          <p className="text-xs text-cafe-ink/40 uppercase tracking-widest font-bold mt-1">Overview & Management</p>
+        </div>
         <button 
           onClick={() => setShowAdd(true)}
           className="flex items-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
@@ -1206,7 +1264,7 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
             />
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Akun (COA)</label>
+            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">{isAdjustment ? 'Akun Debit' : 'Akun (COA)'}</label>
             <select 
               required
               className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
@@ -1219,35 +1277,67 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
               ))}
             </select>
           </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Debit (Keluar)</label>
-            <input 
-              type="number"
-              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-              value={newEntry.debit}
-              onChange={e => setNewEntry({...newEntry, debit: parseFloat(e.target.value), credit: 0})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kredit (Masuk)</label>
-            <input 
-              type="number"
-              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
-              value={newEntry.credit}
-              onChange={e => setNewEntry({...newEntry, credit: parseFloat(e.target.value), debit: 0})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Metode Pembayaran</label>
-            <select 
-              className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
-              value={newEntry.payment_method}
-              onChange={e => setNewEntry({...newEntry, payment_method: e.target.value as any})}
-            >
-              <option value="Kas">Kas</option>
-              <option value="Bank">Bank</option>
-            </select>
-          </div>
+
+          {isAdjustment ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Akun Kredit</label>
+                <select 
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                  value={newEntry.creditAccount}
+                  onChange={e => setNewEntry({...newEntry, creditAccount: e.target.value})}
+                >
+                  <option value="">Pilih Akun</option>
+                  {COA.map(c => (
+                    <option key={c.id} value={c.name}>{c.code} - {c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Nominal</label>
+                <input 
+                  type="number"
+                  required
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={newEntry.amount}
+                  onChange={e => setNewEntry({...newEntry, amount: parseFloat(e.target.value)})}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Debit (Keluar)</label>
+                <input 
+                  type="number"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={newEntry.debit}
+                  onChange={e => setNewEntry({...newEntry, debit: parseFloat(e.target.value), credit: 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Kredit (Masuk)</label>
+                <input 
+                  type="number"
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors font-mono"
+                  value={newEntry.credit}
+                  onChange={e => setNewEntry({...newEntry, credit: parseFloat(e.target.value), debit: 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Metode Pembayaran</label>
+                <select 
+                  className="w-full border-b border-cafe-ink/10 py-2 text-sm focus:border-cafe-espresso focus:outline-none transition-colors bg-transparent"
+                  value={newEntry.payment_method}
+                  onChange={e => setNewEntry({...newEntry, payment_method: e.target.value as any})}
+                >
+                  <option value="Kas">Kas</option>
+                  <option value="Bank">Bank</option>
+                </select>
+              </div>
+            </>
+          )}
           <div className="flex items-end gap-3">
             <button type="submit" className="flex-1 bg-cafe-espresso text-cafe-paper py-3 rounded-xl text-sm font-bold">Simpan</button>
             <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-3 border border-cafe-ink/10 rounded-xl text-sm font-bold hover:bg-cafe-ink/5">Batal</button>
@@ -1261,6 +1351,7 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/10">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Tanggal</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Keterangan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Akun</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Metode</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Debit</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Kredit</th>
@@ -1274,10 +1365,13 @@ function JournalView({ journal, COA, onUpdate, userRole, selectedBranchId }: { j
                 <td className="p-6 text-sm">
                   <span className="font-medium text-cafe-ink">{entry.description}</span>
                 </td>
+                <td className="p-6 text-sm font-bold text-cafe-espresso">{entry.account}</td>
                 <td className="p-6 text-xs font-mono">
-                  <span className={`px-2 py-1 rounded-md ${entry.payment_method === 'Bank' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
-                    {entry.payment_method || 'Kas'}
-                  </span>
+                  {entry.payment_method ? (
+                    <span className={`px-2 py-1 rounded-md ${entry.payment_method === 'Bank' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                      {entry.payment_method}
+                    </span>
+                  ) : '-'}
                 </td>
                 <td className="p-6 text-sm text-right font-mono text-rose-600 font-bold">
                   {entry.debit > 0 ? formatCurrency(entry.debit) : '0'}
@@ -1381,6 +1475,7 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
               <option value="Asset">Aset</option>
               <option value="Income">Pendapatan</option>
               <option value="Expense">Beban / Pengeluaran</option>
+              <option value="Adjustment">Jurnal Penyesuaian</option>
             </select>
           </div>
           <div className="flex items-end gap-3">
@@ -1431,7 +1526,34 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
   );
 }
 
-function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal: JournalEntry[] }) {
+function ReportsView({ journal, branches }: { journal: JournalEntry[], branches: Branch[] }) {
+  const currentYear = new Date().getFullYear();
+  
+  // Helper to calculate totals for a branch
+  const getBranchTotals = (branchId: number) => {
+    const branchJournal = journal.filter(j => {
+      if (branchId === 1) {
+        return j.branch_id === 1 || j.branch_id === null;
+      }
+      return j.branch_id === branchId;
+    });
+    
+    const income = branchJournal
+      .filter(j => j.category === 'Income')
+      .reduce((sum, j) => sum + (j.credit || 0), 0);
+      
+    const expenses = branchJournal
+      .filter(j => j.category === 'Expense')
+      .reduce((sum, j) => sum + (j.debit || 0), 0);
+      
+    const expenseItems = branchJournal.filter(j => j.category === 'Expense');
+    
+    return { income, expenses, expenseItems };
+  };
+
+  const rumasaTotals = getBranchTotals(1);
+  const hillsideTotals = getBranchTotals(2);
+
   return (
     <div className="space-y-10">
       <div className="flex justify-end">
@@ -1442,46 +1564,122 @@ function ReportsView({ profitLoss, journal }: { profitLoss: ProfitLoss, journal:
         <div className="absolute top-0 left-0 w-full h-2 bg-cafe-espresso"></div>
         
         <div className="text-center mb-16">
+          <h2 className="text-3xl font-serif font-bold text-cafe-espresso tracking-tight">RUMASA</h2>
+          <h3 className="text-xl font-serif italic text-cafe-latte mt-1">Laba Rugi</h3>
+          <p className="text-sm font-mono opacity-40 mt-2">{currentYear}</p>
           <div className="w-20 h-px bg-cafe-espresso/20 mx-auto mt-6"></div>
         </div>
 
-        <div className="space-y-12">
-          <section>
-            <h4 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Pendapatan</h4>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-sm font-medium">Total Penjualan</span>
-              <span className="font-mono text-sm font-bold">{formatCurrency(profitLoss.income)}</span>
+        <div className="space-y-16">
+          {/* RUMASA HILLSIDE SECTION */}
+          <section className="space-y-8">
+            <div className="border-l-4 border-cafe-espresso pl-6">
+              <h4 className="text-xl font-serif font-bold text-cafe-espresso">RUMASA HILLSIDE</h4>
             </div>
-            <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-4 text-cafe-espresso">
-              <span className="text-sm">Total Pendapatan Bersih</span>
-              <span className="font-mono text-lg underline decoration-double underline-offset-4">{formatCurrency(profitLoss.income)}</span>
-            </div>
-          </section>
-
-          <section>
-            <h4 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Beban & Pengeluaran</h4>
-            <div className="space-y-3">
-              {journal.filter(e => e.category === 'Expense').map(e => (
-                <div key={e.id} className="flex justify-between items-center py-2 group">
-                  <span className="text-sm opacity-70 group-hover:opacity-100 transition-opacity">{e.description}</span>
-                  <span className="font-mono text-xs font-bold">{formatCurrency(e.debit)}</span>
+            
+            <div className="space-y-8 pl-6">
+              <section>
+                <h5 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Pendapatan</h5>
+                <div className="flex justify-between items-center py-3">
+                  <span className="text-sm font-medium">Total Penjualan</span>
+                  <span className="font-mono text-sm font-bold">{formatCurrency(hillsideTotals.income)}</span>
                 </div>
-              ))}
-              {journal.filter(e => e.category === 'Expense').length === 0 && (
-                <p className="text-center py-4 text-xs opacity-30 italic">Belum ada catatan beban.</p>
-              )}
-            </div>
-            <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-6 text-rose-700">
-              <span className="text-sm">Total Beban Operasional</span>
-              <span className="font-mono text-sm">({formatCurrency(profitLoss.expenses)})</span>
+                <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-4 text-cafe-espresso">
+                  <span className="text-sm">Total Pendapatan Bersih</span>
+                  <span className="font-mono text-lg underline decoration-double underline-offset-4">{formatCurrency(hillsideTotals.income)}</span>
+                </div>
+              </section>
+
+              <section>
+                <h5 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Beban & Pengeluaran</h5>
+                <div className="space-y-3">
+                  {hillsideTotals.expenseItems.map(e => (
+                    <div key={e.id} className="flex justify-between items-center py-2 group">
+                      <span className="text-sm opacity-70 group-hover:opacity-100 transition-opacity">{e.description}</span>
+                      <span className="font-mono text-xs font-bold">{formatCurrency(e.debit)}</span>
+                    </div>
+                  ))}
+                  {hillsideTotals.expenseItems.length === 0 && (
+                    <p className="text-center py-4 text-xs opacity-30 italic">Belum ada catatan beban.</p>
+                  )}
+                </div>
+                <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-6 text-rose-700">
+                  <span className="text-sm">Total Beban Operasional</span>
+                  <span className="font-mono text-sm">({formatCurrency(hillsideTotals.expenses)})</span>
+                </div>
+              </section>
+
+              <section className="pt-6">
+                <div className="flex justify-between items-center bg-cafe-cream/20 p-6 rounded-xl">
+                  <span className="text-lg font-serif italic text-cafe-espresso font-bold">Laba (Rugi) Bersih Hillside</span>
+                  <span className={`text-xl font-mono font-black ${hillsideTotals.income - hillsideTotals.expenses >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {formatCurrency(hillsideTotals.income - hillsideTotals.expenses)}
+                  </span>
+                </div>
+              </section>
             </div>
           </section>
 
+          <div className="h-px bg-cafe-ink/5 mx-auto w-full"></div>
+
+          {/* RUMASA SECTION */}
+          <section className="space-y-8">
+            <div className="border-l-4 border-cafe-espresso pl-6">
+              <h4 className="text-xl font-serif font-bold text-cafe-espresso">RUMASA</h4>
+            </div>
+            
+            <div className="space-y-8 pl-6">
+              <section>
+                <h5 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Pendapatan</h5>
+                <div className="flex justify-between items-center py-3">
+                  <span className="text-sm font-medium">Total Penjualan</span>
+                  <span className="font-mono text-sm font-bold">{formatCurrency(rumasaTotals.income)}</span>
+                </div>
+                <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-4 text-cafe-espresso">
+                  <span className="text-sm">Total Pendapatan Bersih</span>
+                  <span className="font-mono text-lg underline decoration-double underline-offset-4">{formatCurrency(rumasaTotals.income)}</span>
+                </div>
+              </section>
+
+              <section>
+                <h5 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b border-cafe-ink/5 pb-4 mb-6">Beban & Pengeluaran</h5>
+                <div className="space-y-3">
+                  {rumasaTotals.expenseItems.map(e => (
+                    <div key={e.id} className="flex justify-between items-center py-2 group">
+                      <span className="text-sm opacity-70 group-hover:opacity-100 transition-opacity">{e.description}</span>
+                      <span className="font-mono text-xs font-bold">{formatCurrency(e.debit)}</span>
+                    </div>
+                  ))}
+                  {rumasaTotals.expenseItems.length === 0 && (
+                    <p className="text-center py-4 text-xs opacity-30 italic">Belum ada catatan beban.</p>
+                  )}
+                </div>
+                <div className="flex justify-between items-center py-4 font-black border-t border-cafe-ink/10 mt-6 text-rose-700">
+                  <span className="text-sm">Total Beban Operasional</span>
+                  <span className="font-mono text-sm">({formatCurrency(rumasaTotals.expenses)})</span>
+                </div>
+              </section>
+
+              <section className="pt-6">
+                <div className="flex justify-between items-center bg-cafe-cream/20 p-6 rounded-xl">
+                  <span className="text-lg font-serif italic text-cafe-espresso font-bold">Laba (Rugi) Bersih Rumasa</span>
+                  <span className={`text-xl font-mono font-black ${rumasaTotals.income - rumasaTotals.expenses >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {formatCurrency(rumasaTotals.income - rumasaTotals.expenses)}
+                  </span>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          {/* CONSOLIDATED TOTAL */}
           <section className="pt-10 border-t-4 border-cafe-espresso/10">
-            <div className="flex justify-between items-center bg-cafe-cream/30 p-8 rounded-2xl">
-              <span className="text-xl font-serif italic text-cafe-espresso font-bold">Laba (Rugi) Bersih</span>
-              <span className={`text-2xl font-mono font-black ${profitLoss.income - profitLoss.expenses >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {formatCurrency(profitLoss.income - profitLoss.expenses)}
+            <div className="flex justify-between items-center bg-cafe-espresso p-8 rounded-2xl shadow-xl">
+              <div className="text-cafe-paper">
+                <span className="text-xl font-serif italic font-bold block">Total Laba (Rugi) Konsolidasi</span>
+                <span className="text-[10px] uppercase tracking-widest opacity-60">Gabungan RUMASA & RUMASA HILLSIDE</span>
+              </div>
+              <span className={`text-3xl font-mono font-black ${hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {formatCurrency(hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses))}
               </span>
             </div>
           </section>
@@ -2832,7 +3030,7 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
 function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranchId }: { inventory: InventoryItem[], units: Unit[], onUpdate: () => void, userRole: UserRole, selectedBranchId: number | null }) {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, category: 'Cleaning' as const });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, used_stock: 0, category: 'Cleaning' as const });
   const [loading, setLoading] = useState(false);
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -2846,7 +3044,7 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
       });
       if (res.ok) {
         setShowAdd(false);
-        setNewItem({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, category: 'Cleaning' });
+        setNewItem({ name: '', unit: 'GR', quantity: 0, cost_per_unit: 0, cleaning_physical_stock: 0, used_stock: 0, category: 'Cleaning' });
         onUpdate();
       } else {
         const error = await res.json();
@@ -2869,7 +3067,8 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          cleaning_physical_stock: editingItem.cleaning_physical_stock 
+          cleaning_physical_stock: editingItem.cleaning_physical_stock,
+          used_stock: editingItem.used_stock
         })
       });
       
@@ -2952,10 +3151,10 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
         <motion.form 
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex gap-6 items-end"
+          className="bg-white border border-cafe-ink/5 p-8 rounded-2xl shadow-sm flex flex-col md:flex-row gap-6 items-end"
           onSubmit={handleUpdateStock}
         >
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
             <div className="space-y-2">
               <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Item</label>
               <input 
@@ -2973,6 +3172,16 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
                 className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
                 value={editingItem.cleaning_physical_stock || 0}
                 onChange={e => setEditingItem({...editingItem, cleaning_physical_stock: parseFloat(e.target.value) || 0})}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest opacity-50 font-bold">Stock Terpakai ({editingItem.unit})</label>
+              <input 
+                type="number"
+                required
+                className="w-full border-b border-cafe-espresso py-2 text-sm focus:outline-none font-mono"
+                value={editingItem.used_stock || 0}
+                onChange={e => setEditingItem({...editingItem, used_stock: parseFloat(e.target.value) || 0})}
               />
             </div>
           </div>
@@ -3002,13 +3211,15 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Item</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Satuan</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stok Area Kebersihan</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Stock Terpakai</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Sisa Stock</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
             {inventory.filter(i => i.category === 'Cleaning').length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris kebersihan.</td>
+                <td colSpan={6} className="p-10 text-center text-sm opacity-40 italic font-serif">Belum ada data inventaris kebersihan.</td>
               </tr>
             ) : (
               inventory.filter(i => i.category === 'Cleaning').map(item => (
@@ -3018,6 +3229,16 @@ function CleaningStockView({ inventory, units, onUpdate, userRole, selectedBranc
                   <td className="p-6 text-sm text-right font-mono">
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
                       {item.cleaning_physical_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+                      {item.used_stock || 0}
+                    </span>
+                  </td>
+                  <td className="p-6 text-sm text-right font-mono">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${((item.cleaning_physical_stock || 0) - (item.used_stock || 0)) < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      {(item.cleaning_physical_stock || 0) - (item.used_stock || 0)}
                     </span>
                   </td>
                   <td className="p-6 text-right">
