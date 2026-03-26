@@ -665,15 +665,16 @@ export default function App() {
             )}
 
             {(activeTab === 'journal' || activeTab === 'adjustment-journal') && (
-              <JournalView 
-                key={activeTab}
-                journal={journal.filter(j => activeTab === 'adjustment-journal' ? j.is_adjustment : !j.is_adjustment)} 
-                COA={COA} 
-                onUpdate={fetchData} 
-                userRole={userRole} 
-                selectedBranchId={selectedBranchId}
-                isAdjustment={activeTab === 'adjustment-journal'}
-              />
+              <div key={activeTab}>
+                <JournalView 
+                  journal={journal.filter(j => activeTab === 'adjustment-journal' ? j.is_adjustment : !j.is_adjustment)} 
+                  COA={COA} 
+                  onUpdate={fetchData} 
+                  userRole={userRole} 
+                  selectedBranchId={selectedBranchId}
+                  isAdjustment={activeTab === 'adjustment-journal'}
+                />
+              </div>
             )}
 
             {activeTab === 'COA' && (
@@ -1473,6 +1474,8 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
               onChange={e => setNewCOA({...newCOA, category: e.target.value as any})}
             >
               <option value="Asset">Aset</option>
+              <option value="Liability">Liabilitas (Hutang)</option>
+              <option value="Equity">Ekuitas (Modal)</option>
               <option value="Income">Pendapatan</option>
               <option value="Expense">Beban / Pengeluaran</option>
               <option value="Adjustment">Jurnal Penyesuaian</option>
@@ -1528,6 +1531,7 @@ function COAView({ COA, onUpdate, userRole }: { COA: COA[], onUpdate: () => void
 
 function ReportsView({ journal, branches }: { journal: JournalEntry[], branches: Branch[] }) {
   const currentYear = new Date().getFullYear();
+  const [reportType, setReportType] = useState<'profit-loss' | 'balance-sheet'>('profit-loss');
   
   // Helper to calculate totals for a branch
   const getBranchTotals = (branchId: number) => {
@@ -1539,16 +1543,64 @@ function ReportsView({ journal, branches }: { journal: JournalEntry[], branches:
     });
     
     const income = branchJournal
-      .filter(j => j.category === 'Income')
+      .filter(j => j.category === 'Income' || j.category === 'Adjustment')
       .reduce((sum, j) => sum + (j.credit || 0), 0);
       
     const expenses = branchJournal
-      .filter(j => j.category === 'Expense')
+      .filter(j => j.category === 'Expense' || j.category === 'Adjustment')
       .reduce((sum, j) => sum + (j.debit || 0), 0);
       
     const expenseItems = branchJournal.filter(j => j.category === 'Expense');
+
+    // Balance Sheet Calculations
+    const assets = branchJournal
+      .filter(j => j.category === 'Asset')
+      .reduce((sum, j) => sum + (j.debit || 0) - (j.credit || 0), 0);
+
+    const liabilities = branchJournal
+      .filter(j => j.category === 'Liability')
+      .reduce((sum, j) => sum + (j.credit || 0) - (j.debit || 0), 0);
+
+    const equity = branchJournal
+      .filter(j => j.category === 'Equity')
+      .reduce((sum, j) => sum + (j.credit || 0) - (j.debit || 0), 0);
+
+    // Group assets by account name
+    const assetAccounts = branchJournal
+      .filter(j => j.category === 'Asset')
+      .reduce((acc, j) => {
+        acc[j.account] = (acc[j.account] || 0) + (j.debit || 0) - (j.credit || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+    // Group liabilities by account name
+    const liabilityAccounts = branchJournal
+      .filter(j => j.category === 'Liability')
+      .reduce((acc, j) => {
+        acc[j.account] = (acc[j.account] || 0) + (j.credit || 0) - (j.debit || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+    // Group equity by account name
+    const equityAccounts = branchJournal
+      .filter(j => j.category === 'Equity')
+      .reduce((acc, j) => {
+        acc[j.account] = (acc[j.account] || 0) + (j.credit || 0) - (j.debit || 0);
+        return acc;
+      }, {} as Record<string, number>);
     
-    return { income, expenses, expenseItems };
+    return { 
+      income, 
+      expenses, 
+      expenseItems, 
+      assets, 
+      liabilities, 
+      equity,
+      assetAccounts,
+      liabilityAccounts,
+      equityAccounts,
+      netProfit: income - expenses
+    };
   };
 
   const rumasaTotals = getBranchTotals(1);
@@ -1556,23 +1608,38 @@ function ReportsView({ journal, branches }: { journal: JournalEntry[], branches:
 
   return (
     <div className="space-y-10">
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        <div className="flex bg-cafe-cream/30 p-1 rounded-xl border border-cafe-ink/5">
+          <button 
+            onClick={() => setReportType('profit-loss')}
+            className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${reportType === 'profit-loss' ? 'bg-cafe-espresso text-cafe-paper shadow-md' : 'text-cafe-espresso/60 hover:text-cafe-espresso'}`}
+          >
+            Laba Rugi
+          </button>
+          <button 
+            onClick={() => setReportType('balance-sheet')}
+            className={`px-6 py-2 rounded-lg text-xs font-bold transition-all ${reportType === 'balance-sheet' ? 'bg-cafe-espresso text-cafe-paper shadow-md' : 'text-cafe-espresso/60 hover:text-cafe-espresso'}`}
+          >
+            Neraca
+          </button>
+        </div>
         <div className="text-[10px] uppercase tracking-[0.2em] opacity-50 font-bold bg-cafe-cream px-4 py-2 rounded-full">Periode: {new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' })}</div>
       </div>
 
-      <div className="max-w-3xl mx-auto bg-white border border-cafe-ink/5 p-6 md:p-16 rounded-[2rem] shadow-2xl relative overflow-hidden">
+      <div className="max-w-4xl mx-auto bg-white border border-cafe-ink/5 p-6 md:p-16 rounded-[2rem] shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-cafe-espresso"></div>
         
         <div className="text-center mb-16">
           <h2 className="text-3xl font-serif font-bold text-cafe-espresso tracking-tight">RUMASA</h2>
-          <h3 className="text-xl font-serif italic text-cafe-latte mt-1">Laba Rugi</h3>
+          <h3 className="text-xl font-serif italic text-cafe-latte mt-1">{reportType === 'profit-loss' ? 'Laba Rugi' : 'Neraca'}</h3>
           <p className="text-sm font-mono opacity-40 mt-2">{currentYear}</p>
           <div className="w-20 h-px bg-cafe-espresso/20 mx-auto mt-6"></div>
         </div>
 
-        <div className="space-y-16">
-          {/* RUMASA HILLSIDE SECTION */}
-          <section className="space-y-8">
+        {reportType === 'profit-loss' ? (
+          <>
+            {/* RUMASA HILLSIDE SECTION */}
+            <section className="space-y-8">
             <div className="border-l-4 border-cafe-espresso pl-6">
               <h4 className="text-xl font-serif font-bold text-cafe-espresso">RUMASA HILLSIDE</h4>
             </div>
@@ -1671,19 +1738,118 @@ function ReportsView({ journal, branches }: { journal: JournalEntry[], branches:
             </div>
           </section>
 
-          {/* CONSOLIDATED TOTAL */}
-          <section className="pt-10 border-t-4 border-cafe-espresso/10">
-            <div className="flex justify-between items-center bg-cafe-espresso p-8 rounded-2xl shadow-xl">
-              <div className="text-cafe-paper">
-                <span className="text-xl font-serif italic font-bold block">Total Laba (Rugi) Konsolidasi</span>
-                <span className="text-[10px] uppercase tracking-widest opacity-60">Gabungan RUMASA & RUMASA HILLSIDE</span>
+            {/* CONSOLIDATED TOTAL */}
+            <section className="pt-10 border-t-4 border-cafe-espresso/10">
+              <div className="flex justify-between items-center bg-cafe-espresso p-8 rounded-2xl shadow-xl">
+                <div className="text-cafe-paper">
+                  <span className="text-xl font-serif italic font-bold block">Total Laba (Rugi) Konsolidasi</span>
+                  <span className="text-[10px] uppercase tracking-widest opacity-60">Gabungan RUMASA & RUMASA HILLSIDE</span>
+                </div>
+                <span className={`text-3xl font-mono font-black ${hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {formatCurrency(hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses))}
+                </span>
               </div>
-              <span className={`text-3xl font-mono font-black ${hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {formatCurrency(hillsideTotals.income + rumasaTotals.income - (hillsideTotals.expenses + rumasaTotals.expenses))}
-              </span>
+            </section>
+          </>
+        ) : (
+          <div className="space-y-16">
+            {/* BALANCE SHEET CONTENT */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
+              {/* ASSETS COLUMN */}
+              <div className="space-y-10">
+                <h4 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b-2 border-cafe-espresso pb-4">Aset (Aktiva)</h4>
+                
+                <div className="space-y-8">
+                  <section>
+                    <h5 className="text-[10px] uppercase tracking-widest font-bold text-cafe-espresso/60 mb-4">Aset Lancar</h5>
+                    <div className="space-y-3">
+                      {Object.entries(rumasaTotals.assetAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name}</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                      {Object.entries(hillsideTotals.assetAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name} (Hillside)</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+
+                <div className="pt-6 border-t border-cafe-ink/10">
+                  <div className="flex justify-between items-center font-black text-cafe-espresso">
+                    <span className="text-sm uppercase tracking-widest">Total Aset</span>
+                    <span className="font-mono text-lg underline decoration-double underline-offset-4">
+                      {formatCurrency(rumasaTotals.assets + hillsideTotals.assets)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* LIABILITIES & EQUITY COLUMN */}
+              <div className="space-y-10">
+                <div className="space-y-10">
+                  <h4 className="text-[11px] uppercase tracking-[0.2em] font-black text-cafe-latte border-b-2 border-cafe-espresso pb-4">Kewajiban & Ekuitas (Pasiva)</h4>
+                  
+                  <section>
+                    <h5 className="text-[10px] uppercase tracking-widest font-bold text-cafe-espresso/60 mb-4">Liabilitas (Hutang)</h5>
+                    <div className="space-y-3">
+                      {Object.entries(rumasaTotals.liabilityAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name}</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                      {Object.entries(hillsideTotals.liabilityAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name} (Hillside)</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                      {Object.keys(rumasaTotals.liabilityAccounts).length === 0 && Object.keys(hillsideTotals.liabilityAccounts).length === 0 && (
+                        <p className="text-xs opacity-30 italic">Tidak ada liabilitas.</p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section>
+                    <h5 className="text-[10px] uppercase tracking-widest font-bold text-cafe-espresso/60 mb-4">Ekuitas (Modal)</h5>
+                    <div className="space-y-3">
+                      {Object.entries(rumasaTotals.equityAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name}</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                      {Object.entries(hillsideTotals.equityAccounts).map(([name, balance]) => (
+                        <div key={name} className="flex justify-between items-center py-1">
+                          <span className="text-sm">{name} (Hillside)</span>
+                          <span className="font-mono text-sm">{formatCurrency(balance)}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-center py-1 text-emerald-700 font-medium italic">
+                        <span className="text-sm">Laba Tahun Berjalan</span>
+                        <span className="font-mono text-sm">{formatCurrency(rumasaTotals.netProfit + hillsideTotals.netProfit)}</span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="pt-6 border-t border-cafe-ink/10">
+                  <div className="flex justify-between items-center font-black text-cafe-espresso">
+                    <span className="text-sm uppercase tracking-widest">Total Pasiva</span>
+                    <span className="font-mono text-lg underline decoration-double underline-offset-4">
+                      {formatCurrency(rumasaTotals.liabilities + hillsideTotals.liabilities + rumasaTotals.equity + hillsideTotals.equity + rumasaTotals.netProfit + hillsideTotals.netProfit)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
-          </section>
-        </div>
+          </div>
+        )}
         
         <div className="mt-16 text-center">
           <p className="text-[9px] uppercase tracking-[0.4em] opacity-20 font-bold">Generated by RestoManager Artisan System</p>
@@ -2657,118 +2823,6 @@ function SettingsView({
   return (
     <div className="space-y-8">
       <div className="max-w-2xl mx-auto space-y-8">
-        {/* Supabase Status - Only for Managers or Admins */}
-        {(userRole === 'Manager' || userRole === 'Admin') && (
-          <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <HardDrive className="text-cafe-espresso" size={20} />
-                <h4 className="text-lg font-bold text-cafe-espresso">Status Supabase</h4>
-              </div>
-              <button 
-                onClick={onCheckStatus}
-                disabled={checkingStatus}
-                className="p-2 hover:bg-cafe-espresso/5 rounded-lg text-cafe-espresso transition-all disabled:opacity-50"
-                title="Refresh Status"
-              >
-                <RefreshCw size={18} className={checkingStatus ? 'animate-spin' : ''} />
-              </button>
-            </div>
-            
-            {supabaseStatus ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
-                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Koneksi</p>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${supabaseStatus.connectionTest === 'Successful' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                      <p className={`text-sm font-bold ${supabaseStatus.connectionTest === 'Successful' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        {supabaseStatus.connectionTest}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
-                    <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Service Role Key</p>
-                    <p className={`text-sm font-bold ${supabaseStatus.hasServiceKey ? 'text-emerald-700' : 'text-amber-700'}`}>
-                      {supabaseStatus.hasServiceKey ? 'Terdeteksi' : 'Tidak Ada (Gunakan Anon)'}
-                    </p>
-                  </div>
-                </div>
-
-                {supabaseStatus.errorDetails && (
-                  <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100">
-                    <p className="text-[10px] uppercase tracking-widest text-rose-700 font-bold mb-1">Error Details</p>
-                    <p className="text-xs text-rose-600 font-mono break-all">{supabaseStatus.errorDetails}</p>
-                  </div>
-                )}
-
-                <div className="p-4 bg-cafe-cream/5 rounded-2xl border border-cafe-ink/5">
-                  <p className="text-[10px] uppercase tracking-widest opacity-40 font-bold mb-1">Tips & Solusi</p>
-                  <p className="text-xs opacity-60 leading-relaxed">
-                    {supabaseStatus.suggestedAction || (supabaseStatus.connectionTest === 'Successful' 
-                      ? 'Koneksi Supabase berjalan dengan baik. Semua data tersimpan di database eksternal.' 
-                      : 'Koneksi gagal. Pastikan SUPABASE_URL dan SUPABASE_ANON_KEY sudah benar di panel Secrets.')}
-                    {!supabaseStatus.hasServiceKey && ' Anda belum memasukkan SUPABASE_SERVICE_ROLE_KEY, pastikan Row Level Security (RLS) di Supabase sudah dikonfigurasi dengan benar agar data dapat diperbarui.'}
-                  </p>
-                  
-                  {supabaseStatus.connectionTest !== 'Successful' && (
-                    <button 
-                      onClick={fetchSql}
-                      disabled={loadingSql}
-                      className="mt-4 flex items-center gap-2 text-[10px] font-bold text-cafe-espresso bg-cafe-cream/20 px-4 py-2 rounded-lg hover:bg-cafe-cream/40 transition-all border border-cafe-espresso/10"
-                    >
-                      {loadingSql ? <RefreshCw size={12} className="animate-spin" /> : <Terminal size={12} />}
-                      LIHAT SKRIP SQL SETUP DATABASE
-                    </button>
-                  )}
-                </div>
-
-                {showSql && (
-                  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-cafe-espresso/60 backdrop-blur-sm">
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="bg-white w-full max-w-3xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-                    >
-                      <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center bg-cafe-cream/10">
-                        <div className="flex items-center gap-3">
-                          <Terminal className="text-cafe-espresso" size={20} />
-                          <h4 className="text-lg font-serif italic text-cafe-espresso">SQL Setup Database</h4>
-                        </div>
-                        <button onClick={() => setShowSql(false)} className="p-2 hover:bg-cafe-espresso/5 rounded-full transition-all">
-                          <X size={20} />
-                        </button>
-                      </div>
-                      <div className="flex-1 overflow-y-auto p-6 bg-cafe-ink text-cafe-paper font-mono text-[10px] leading-relaxed">
-                        <pre className="whitespace-pre-wrap">{sqlScript}</pre>
-                      </div>
-                      <div className="p-6 border-t border-cafe-ink/5 flex justify-end gap-3 bg-cafe-cream/5">
-                        <button 
-                          onClick={() => copyToClipboard(sqlScript)}
-                          className="px-6 py-2.5 bg-cafe-espresso text-cafe-paper rounded-xl text-xs font-bold hover:shadow-lg transition-all flex items-center gap-2"
-                        >
-                          <Copy size={14} />
-                          SALIN SKRIP SQL
-                        </button>
-                        <button 
-                          onClick={() => setShowSql(false)}
-                          className="px-6 py-2.5 bg-cafe-espresso/5 text-cafe-espresso rounded-xl text-xs font-bold hover:bg-cafe-espresso/10 transition-all"
-                        >
-                          TUTUP
-                        </button>
-                      </div>
-                    </motion.div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center p-8">
-                <Loader2 className="animate-spin text-cafe-espresso/20" size={32} />
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Role Settings - Only for Managers or the specific user */}
         {(userRole === 'Manager' || userEmail === 'muhammadmahardhikadib@gmail.com') && (
           <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
@@ -2919,6 +2973,70 @@ function SettingsView({
             </div>
           </div>
         </div>
+
+        {/* Database Setup - Only for Managers */}
+        {userRole === 'Manager' && (
+          <div className="bg-white border border-cafe-ink/5 p-8 rounded-3xl shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <HardDrive className="text-cafe-espresso" size={20} />
+              <h4 className="text-lg font-bold text-cafe-espresso">Setup Database Supabase</h4>
+            </div>
+            <p className="text-xs text-cafe-ink/60 leading-relaxed">
+              Jika Anda melihat error "Could not find the table", itu berarti tabel di Supabase belum dibuat. Klik tombol di bawah untuk mendapatkan script SQL yang perlu dijalankan di dashboard Supabase Anda.
+            </p>
+            <button 
+              onClick={fetchSql}
+              disabled={loadingSql}
+              className="w-full flex items-center justify-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-4 rounded-2xl text-sm font-bold hover:shadow-xl transition-all disabled:opacity-50"
+            >
+              {loadingSql ? <Loader2 className="animate-spin" size={18} /> : <Terminal size={18} />}
+              Lihat Script SQL Setup
+            </button>
+          </div>
+        )}
+
+        {/* SQL Script Modal */}
+        <AnimatePresence>
+          {showSql && (
+            <div className="fixed inset-0 bg-cafe-ink/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white w-full max-w-4xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-6 border-b border-cafe-ink/5 flex justify-between items-center bg-cafe-cream/10">
+                  <div className="flex items-center gap-3">
+                    <Terminal className="text-cafe-espresso" size={20} />
+                    <h3 className="font-bold text-cafe-espresso">Supabase SQL Setup Script</h3>
+                  </div>
+                  <button onClick={() => setShowSql(false)} className="p-2 hover:bg-cafe-espresso/5 rounded-full transition-all">
+                    <X size={20} className="text-cafe-espresso" />
+                  </button>
+                </div>
+                <div className="p-6 flex-1 overflow-y-auto bg-cafe-ink/5">
+                  <pre className="text-[10px] font-mono text-cafe-espresso/80 leading-relaxed whitespace-pre-wrap bg-white p-6 rounded-2xl border border-cafe-ink/5">
+                    {sqlScript}
+                  </pre>
+                </div>
+                <div className="p-6 border-t border-cafe-ink/5 flex gap-4 bg-white">
+                  <button 
+                    onClick={() => copyToClipboard(sqlScript)}
+                    className="flex-1 flex items-center justify-center gap-2 bg-cafe-espresso text-cafe-paper px-6 py-3 rounded-xl text-sm font-bold hover:shadow-lg transition-all"
+                  >
+                    <Copy size={18} /> Salin Script
+                  </button>
+                  <button 
+                    onClick={() => setShowSql(false)}
+                    className="px-6 py-3 rounded-xl text-sm font-bold border border-cafe-ink/10 text-cafe-espresso hover:bg-cafe-ink/5 transition-all"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -2928,7 +3046,8 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
   const [worksheet, setWorksheet] = useState<{
     kas: { inflow: number, outflow: number, balance: number },
     bank: { inflow: number, outflow: number, balance: number },
-    total: { inflow: number, outflow: number, balance: number }
+    total: { inflow: number, outflow: number, balance: number },
+    accounts: Record<string, { inflow: number, outflow: number, balance: number }>
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -2994,24 +3113,24 @@ function WorksheetView({ journal }: { journal: JournalEntry[] }) {
           <thead>
             <tr className="border-b border-cafe-ink/5 bg-cafe-cream/5">
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold">Akun / Metode</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Masuk (Kredit)</th>
-              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Keluar (Debit)</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Masuk (Debit)</th>
+              <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Total Keluar (Kredit)</th>
               <th className="p-6 text-[11px] uppercase tracking-widest opacity-50 font-bold text-right">Saldo Akhir</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-cafe-ink/5">
-            <tr className="hover:bg-cafe-cream/10 transition-colors">
-              <td className="p-6 text-sm font-bold text-orange-700">KAS (Tunai)</td>
-              <td className="p-6 text-sm text-right font-mono text-emerald-600">{formatCurrency(worksheet.kas.inflow)}</td>
-              <td className="p-6 text-sm text-right font-mono text-rose-600">{formatCurrency(worksheet.kas.outflow)}</td>
-              <td className="p-6 text-sm text-right font-mono font-bold">{formatCurrency(worksheet.kas.balance)}</td>
-            </tr>
-            <tr className="hover:bg-cafe-cream/10 transition-colors">
-              <td className="p-6 text-sm font-bold text-blue-700">BANK (Transfer)</td>
-              <td className="p-6 text-sm text-right font-mono text-emerald-600">{formatCurrency(worksheet.bank.inflow)}</td>
-              <td className="p-6 text-sm text-right font-mono text-rose-600">{formatCurrency(worksheet.bank.outflow)}</td>
-              <td className="p-6 text-sm text-right font-mono font-bold">{formatCurrency(worksheet.bank.balance)}</td>
-            </tr>
+            {Object.entries(worksheet.accounts).map(([name, data]: [string, any]) => (
+              <tr key={name} className="hover:bg-cafe-cream/10 transition-colors">
+                <td className={`p-6 text-sm font-bold ${name.toLowerCase() === 'kas' ? 'text-orange-700' : name.toLowerCase() === 'bank' ? 'text-blue-700' : 'text-cafe-espresso'}`}>
+                  {name.toUpperCase()}
+                </td>
+                <td className="p-6 text-sm text-right font-mono text-emerald-600">{formatCurrency(data.inflow)}</td>
+                <td className="p-6 text-sm text-right font-mono text-rose-600">{formatCurrency(data.outflow)}</td>
+                <td className={`p-6 text-sm text-right font-mono font-bold ${data.balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {formatCurrency(data.balance)}
+                </td>
+              </tr>
+            ))}
           </tbody>
           <tfoot>
             <tr className="bg-cafe-espresso text-cafe-paper font-bold">

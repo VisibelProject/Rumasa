@@ -34,7 +34,7 @@ export interface JournalEntry {
   account: string;
   debit: number;
   credit: number;
-  category?: 'Income' | 'Expense' | 'Asset' | 'Adjustment';
+  category?: 'Income' | 'Expense' | 'Asset' | 'Adjustment' | 'Liability' | 'Equity';
   payment_method?: 'Bank' | 'Kas';
   is_adjustment?: boolean;
 }
@@ -76,7 +76,7 @@ export interface COA {
   id: number;
   code: string;
   name: string;
-  category: 'Income' | 'Expense' | 'Asset' | 'Adjustment';
+  category: 'Income' | 'Expense' | 'Asset' | 'Adjustment' | 'Liability' | 'Equity';
 }
 
 export interface Purchase {
