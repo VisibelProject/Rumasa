@@ -1247,9 +1247,17 @@ ON CONFLICT DO NOTHING;
 
       // 1. Get current quantity
       const { data: inv, error: invError } = await client.from("inventory").select("quantity").eq("id", invId).single();
-      if (invError) throw new Error(invError.message);
+      if (invError) {
+        if (isSupabaseTableMissing(invError)) {
+          return res.status(400).json({ 
+            error: "Tabel 'inventory' belum dibuat. Silakan jalankan script SQL di menu Settings.",
+            isTableMissing: true 
+          });
+        }
+        throw new Error(invError.message);
+      }
       
-      const newQty = (inv?.quantity || 0) + quantity;
+      const newQty = (Number(inv?.quantity) || 0) + quantity;
 
       // 2. Update Inventory
       const costPerUnit = total_cost / quantity;
@@ -1264,8 +1272,25 @@ ON CONFLICT DO NOTHING;
       if (updateError) throw new Error(updateError.message);
       
       // 3. Add Journal Entry
-      const { error: journalError } = await client.from("journal").insert([{ branch_id: branch_id || 2, date, description, debit: total_cost, credit: 0, category: "Expense" }]);
-      if (journalError) throw new Error(journalError.message);
+      const { error: journalError } = await client.from("journal").insert([{ 
+        branch_id: branch_id || 2, 
+        date, 
+        description, 
+        account: "5000", // Default to Beban Bahan Baku
+        debit: total_cost, 
+        credit: 0, 
+        category: "Expense",
+        payment_method: "Kas" // Default for purchase
+      }]);
+      if (journalError) {
+        if (isSupabaseTableMissing(journalError)) {
+          return res.status(400).json({ 
+            error: "Tabel 'journal' belum dibuat. Silakan jalankan script SQL di menu Settings.",
+            isTableMissing: true 
+          });
+        }
+        throw new Error(journalError.message);
+      }
 
       // 4. Add Purchase Record
       const { error: purchaseError } = await client.from("purchases").insert([{ 
@@ -1278,6 +1303,12 @@ ON CONFLICT DO NOTHING;
       }]);
       
       if (purchaseError) {
+        if (isSupabaseTableMissing(purchaseError)) {
+          return res.status(400).json({ 
+            error: "Tabel 'purchases' belum dibuat. Silakan jalankan script SQL di menu Settings.",
+            isTableMissing: true 
+          });
+        }
         console.error("Purchase record insert failed:", purchaseError);
         throw new Error("Gagal mencatat riwayat pembelian: " + purchaseError.message);
       }
@@ -1338,6 +1369,7 @@ ON CONFLICT DO NOTHING;
         branch_id: branch_id || 2,
         date, 
         description, 
+        account: "4000", // Default to Pendapatan Penjualan
         debit: 0, 
         credit: amount, 
         category: "Income",
@@ -1345,12 +1377,19 @@ ON CONFLICT DO NOTHING;
       }]);
 
       if (journalError) {
+        if (isSupabaseTableMissing(journalError)) {
+          return res.status(400).json({ 
+            error: "Tabel 'journal' belum dibuat. Silakan jalankan script SQL di menu Settings.",
+            isTableMissing: true 
+          });
+        }
         console.error("Journal entry failed for sale:", journalError);
         throw new Error("Gagal mencatat jurnal: " + journalError.message);
       }
 
       // 2. Deduct Inventory
       if (menu_id) {
+        const qtySold = Number(items_sold) || 1;
         // Deduct based on specific menu ingredients
         const { data: ingredients, error: ingError } = await client
           .from("menu_ingredients")
@@ -1358,14 +1397,31 @@ ON CONFLICT DO NOTHING;
           .eq("menu_id", menu_id);
         
         if (ingError) {
-          console.error("Failed to fetch ingredients for menu:", ingError);
-        } else if (ingredients) {
+          if (isSupabaseTableMissing(ingError)) {
+            console.warn("Tabel menu_ingredients belum dibuat. Inventory tidak dikurangi.");
+          } else {
+            console.error("Failed to fetch ingredients for menu:", ingError);
+          }
+        } else if (ingredients && ingredients.length > 0) {
           for (const ingredient of ingredients) {
-            const totalDeduction = ingredient.quantity * items_sold;
-            const { data: inv, error: invFetchError } = await client.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
+            const totalDeduction = (Number(ingredient.quantity) || 0) * qtySold;
+            const { data: inv, error: invFetchError } = await client
+              .from("inventory")
+              .select("quantity")
+              .eq("id", ingredient.inventory_id)
+              .single();
             
-            if (!invFetchError && inv) {
-              const newQty = (inv.quantity || 0) - totalDeduction;
+            if (invFetchError) {
+              if (isSupabaseTableMissing(invFetchError)) {
+                console.warn("Tabel inventory belum dibuat.");
+                break; // Stop if table is missing
+              }
+              console.error(`Failed to fetch inventory for item ${ingredient.inventory_id}:`, invFetchError);
+              continue;
+            }
+
+            if (inv) {
+              const newQty = (Number(inv.quantity) || 0) - totalDeduction;
               await client.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
             }
           }
@@ -1462,27 +1518,39 @@ ON CONFLICT DO NOTHING;
           branch_id: 2, // Default to RUMASA HILLSIDE for imports
           date, 
           description, 
+          account: "4000", // Default to Pendapatan Penjualan
           debit: 0, 
           credit: amount, 
           category: "Income",
           payment_method: payment_method
         }]);
 
-        if (journalError) throw journalError;
+        if (journalError) {
+          if (isSupabaseTableMissing(journalError)) {
+            throw new Error("Tabel 'journal' belum dibuat. Silakan jalankan script SQL di menu Settings.");
+          }
+          throw journalError;
+        }
 
         // 2. Deduct Inventory if menu_id provided
         if (menu_id) {
+          const qtySold = Number(items_sold) || 1;
           const { data: ingredients, error: ingError } = await client
             .from("menu_ingredients")
             .select("*")
             .eq("menu_id", menu_id);
           
-          if (!ingError && ingredients) {
+          if (!ingError && ingredients && ingredients.length > 0) {
             for (const ingredient of ingredients) {
-              const totalDeduction = ingredient.quantity * items_sold;
-              const { data: inv } = await client.from("inventory").select("quantity").eq("id", ingredient.inventory_id).single();
-              if (inv) {
-                const newQty = (inv.quantity || 0) - totalDeduction;
+              const totalDeduction = (Number(ingredient.quantity) || 0) * qtySold;
+              const { data: inv, error: invFetchError } = await client
+                .from("inventory")
+                .select("quantity")
+                .eq("id", ingredient.inventory_id)
+                .single();
+              
+              if (!invFetchError && inv) {
+                const newQty = (Number(inv.quantity) || 0) - totalDeduction;
                 await client.from("inventory").update({ quantity: newQty }).eq("id", ingredient.inventory_id);
               }
             }
