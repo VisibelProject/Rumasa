@@ -1,4 +1,4 @@
-export type UserRole = 'Manager' | 'Admin' | 'Inventory' | 'Finance';
+export type UserRole = 'Manager' | 'Admin' | 'Inventory' | 'Finance' | 'Staff';
 
 export interface Branch {
   id: number;

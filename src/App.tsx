@@ -196,6 +196,19 @@ export default function App() {
       setUnits(Array.isArray(unitsData) ? unitsData : []);
       setMenus(Array.isArray(menusData) ? menusData : []);
       setPersonalInfo(Array.isArray(personalData) ? personalData : []);
+      
+      // Sync user role from database
+      if (session?.user?.email && Array.isArray(personalData)) {
+        const currentUser = personalData.find(p => p.email.toLowerCase() === session.user.email?.toLowerCase());
+        if (currentUser && currentUser.role) {
+          const dbRole = currentUser.role as UserRole;
+          const validRoles: UserRole[] = ['Manager', 'Admin', 'Inventory', 'Finance', 'Staff'];
+          if (validRoles.includes(dbRole) && dbRole !== userRole) {
+            setUserRole(dbRole);
+          }
+        }
+      }
+
       setEgressStatus(egressData && !egressData.error ? egressData : null);
       
       if (Array.isArray(branchesData)) {
@@ -306,7 +319,7 @@ export default function App() {
         
         <nav className={`flex-1 ${isMinimized ? 'px-2' : 'px-6'} py-4 space-y-3 overflow-y-auto transition-all`}>
           {[
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['Manager', 'Admin', 'Finance'] },
+            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['Manager', 'Admin', 'Finance', 'Staff'] },
             { id: 'purchase', icon: ShoppingCart, label: 'Pembelian', roles: ['Manager', 'Admin', 'Inventory'] },
             { id: 'sale', icon: Banknote, label: 'Penjualan', roles: ['Manager', 'Admin', 'Finance'] },
             { id: 'menu', icon: Coffee, label: 'Menu', roles: ['Manager', 'Admin', 'Inventory'] },
@@ -315,12 +328,12 @@ export default function App() {
               icon: Package, 
               label: 'Stock',
               isGroup: true,
-              roles: ['Manager', 'Admin', 'Inventory'],
+              roles: ['Manager', 'Admin', 'Inventory', 'Staff'],
               subItems: [
                 { id: 'Stock Sistem', icon: Package, label: 'Stock Bahan Baku' },
                 { id: 'Stock Fisik Purchasing', icon: ShoppingCart, label: 'Stock Fisik Purchasing' },
-                { id: 'Stock Fisik Operasional', icon: Package, label: 'Stock Fisik Operasional', roles: ['Manager', 'Admin', 'Finance'] },
-                { id: 'Stock Area Kebersihan', icon: Package, label: 'Stock Area Kebersihan', roles: ['Manager', 'Admin'] },
+                { id: 'Stock Fisik Operasional', icon: Package, label: 'Stock Fisik Operasional', roles: ['Manager', 'Admin', 'Finance', 'Staff'] },
+                { id: 'Stock Area Kebersihan', icon: Package, label: 'Stock Area Kebersihan', roles: ['Manager', 'Admin', 'Staff'] },
                 { id: 'Stock Bahan Baku Rusak', icon: Trash2, label: 'Bahan Baku Rusak', roles: ['Manager', 'Admin', 'Inventory'] },
               ]
             },
@@ -344,13 +357,13 @@ export default function App() {
               icon: User, 
               label: 'Informasi Personal',
               isGroup: true,
-              roles: ['Manager', 'Admin', 'Inventory', 'Finance'],
+              roles: ['Manager', 'Admin', 'Inventory', 'Finance', 'Staff'],
               subItems: [
                 { id: 'personal-info', icon: User, label: 'Profil Saya' },
                 { id: 'employee-data', icon: List, label: 'Data Karyawan' },
               ]
             },
-            { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory', 'Finance'] },
+            { id: 'settings', icon: Settings, label: 'Settings', roles: ['Manager', 'Admin', 'Inventory', 'Finance', 'Staff'] },
           ].filter(item => item.roles.includes(userRole)).map((item) => {
             if (item.isGroup) {
               const isActive = item.subItems?.some(sub => sub.id === activeTab);
